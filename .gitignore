@@ -157,6 +157,18 @@ vite.config.ts.timestamp-*
 .obj
 .so
 .exe
+.blob
+.glob
+.bin
+.jar
+.apk
+.dex
+.class
+.so
+.ipa
+.appx
+.appxbundle
+.appxupload
 
 # Object files
 *.dll
@@ -170,6 +182,13 @@ vite.config.ts.timestamp-*
 *.appx
 *.appxbundle
 *.appxupload
+*.blob
+*.glob
+*.bin
+*.jar
+*.dex
+*.class
+*.so
 
 #
 !.gitignore
@@ -177,12 +196,6 @@ vite.config.ts.timestamp-*
 !.cursorrules
 !.cursorignore
 !.env.example
-
-#
-package-lock.json
-pnpm-lock.yaml
-yarn.lock
-bun.lockb
 
 #
 package-lock.json
