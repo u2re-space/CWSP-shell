@@ -80,8 +80,15 @@ out
 
 # Nuxt.js build / generate output
 .nuxt
-dist
+dist/**/*
 .output
+
+#
+!dist/apps
+!dist/bundles
+!dist/shared
+!dist/core
+!dist/modules
 
 # Gatsby files
 .cache/
@@ -141,3 +148,24 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Object files
+.dll
+.lib
+.o
+.obj
+.so
+.exe
+
+# Object files
+*.dll
+*.lib
+*.o
+*.obj
+*.so
+*.exe
+*.apk
+*.ipa
+*.appx
+*.appxbundle
+*.appxupload
