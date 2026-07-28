@@ -1,0 +1,142 @@
+{
+    "include": [
+        "./fest/**/*.ts",
+        "./test/**/*.ts",
+        "../src/shared/**/*.ts",
+        "../../modules/projects/**/*.ts"
+, "../../../modules/projects/lur.e/src/utils/opfs/file-utils.ts", "../../../modules/projects/lur.e/src/utils/opfs/FileHandling.ts", "../../../modules/projects/lur.e/src/utils/opfs/FileOps.ts", "../src/shared/store/FileSystem.ts", "../../../modules/projects/lur.e/src/utils/opfs/FsWatch.ts", "../../../modules/projects/lur.e/src/utils/opfs/index.ts", "../../../modules/projects/lur.e/src/utils/extended/OPFS.uniform.worker.ts", "../../../modules/projects/lur.e/src/utils/opfs/OPFSMod.ts", "../../../modules/projects/lur.e/src/utils/opfs/WriteFileSmart-v2.ts", "../../../modules/projects/fl.ui/src/ui/misc/Time.ts", "../../../modules/projects/fl.ui/src/AI-slop/items/index.ts", "../../../modules/projects/fl.ui/src/ui/misc/Utils.ts"    ],
+    "exclude": [
+        "node_modules/**",
+        "dist/**",
+        "build/**",
+        "coverage/**",
+        "logs/**",
+        "cache/**",
+        "temp/**",
+        "tmp/**",
+        "src/**/*.js",
+        "src/**/*.jsx"
+    ],
+    "compilerOptions": {
+        "outDir": "./dist/",
+        "paths": {
+            "@phosphor-icons/core/assets/*": [
+                "../node_modules/@phosphor-icons/core/assets/*"
+            ],
+            "shared/*": [
+                "../src/shared/*"
+            ],
+            "shells/types": [
+                "../src/frontend/shells/types.ts"
+            ],
+            "shells/boot": [
+                "../src/frontend/boot/index.ts"
+            ],
+            "shells/window": [
+                "../src/frontend/ai-slop/window/index.ts"
+            ],
+            "views/*": [
+                "../src/frontend/views/*"
+            ],
+            "fonts/*": [
+                "./assets/fonts/*"
+            ],
+            "fest/*": [
+                "./fest/*"
+            ],
+            "fest/cdnImport": [
+                "./fest/cdnImport.mjs"
+            ],
+            "fest/core": [
+                "./fest/core/index.ts"
+            ],
+            "fest/dom": [
+                "./fest/dom/index.ts"
+            ],
+            "fest/fl-ui": [
+                "./fest/fl-ui/index.ts"
+            ],
+            "fest/lure": [
+                "./fest/lure/index.ts"
+            ],
+            "fest/object": [
+                "./fest/object/index.ts"
+            ],
+            "fest/uniform": [
+                "./fest/uniform/index.ts"
+            ],
+            "fest/theme": [
+                "./fest/theme/index.ts"
+            ],
+            "fest/icon": [
+                "./fest/icon/index.ts"
+            ],
+            "fest/polyfill/*": [
+                "./fest/polyfill/*"
+            ],
+            "polyfill/*": [
+                "./fest/polyfill/*"
+            ],
+            "pwa/*": [
+                "../src/pwa/*"
+            ],
+            "crx/*": [
+                "../src/crx/*"
+            ],
+            "com/*": [
+                "../src/com/*"
+            ],
+            "core/*": [
+                "../src/shared/*",
+                "../src/core/*"
+            ],
+            "frontend/*": [
+                "../src/frontend/*"
+            ],
+            "shared/*": [
+                "./*"
+            ],
+            "test/*": [
+                "./test/*"
+            ]
+        },
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "preserveSymlinks": true,
+        "lib": [
+            "ESNext",
+            "DOM",
+            "WebWorker"
+        ],
+        "types": [
+            "chrome"
+        ],
+        "esModuleInterop": true,
+        "strict": false,
+        "forceConsistentCasingInFileNames": true,
+        "allowJs": true,
+        "allowArbitraryExtensions": true,
+        "rewriteRelativeImportExtensions": true,
+        "allowImportingTsExtensions": true,
+        "verbatimModuleSyntax": true,
+        "resolveJsonModule": true,
+        "allowSyntheticDefaultImports": true,
+        "allowUmdGlobalAccess": true,
+        "allowUnreachableCode": true,
+        "allowUnusedLabels": true,
+        "noImplicitAny": false,
+        "noImplicitThis": false,
+        "inlineSources": true,
+        "inlineSourceMap": true,
+        "sourceMap": false,
+        "experimentalDecorators": true,
+        "isolatedModules": true,
+        "emitDecoratorMetadata": false,
+        "useDefineForClassFields": false,
+        "noEmit": true,
+        "noEmitOnError": true,
+        "noEmitHelpers": true
+    },
+    "compileOnSave": false
+}

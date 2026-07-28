@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boot Screen Test</title>
+    <link rel="stylesheet" href="./src/frontend/routing/boot-menu.scss">
+</head>
+<body>
+    <div class="choice container">
+        <header class="choice-header">Boot menu</header>
+        <div class="choice-countdown">Auto-starting in <b>10</b> seconds…</div>
+        <div class="choice-hint">Use <b>↑</b>/<b>↓</b> to select, <b>Enter</b> to boot.</div>
+        <div class="choice-menu" role="menu">
+            <button class="big recommended" type="button">Basic</button>
+            <button class="small faint" type="button">Faint OS (unstable)</button>
+        </div>
+        <label class="choice-remember">
+            <input type="checkbox" checked />
+            <span>Remember my choice</span>
+        </label>
+        <div class="choice-reasons">Currently, I'm not able to actively support the complex <b>Faint</b> project. The <b>Basic</b> version is the default.</div>
+    </div>
+</body>
+</html>

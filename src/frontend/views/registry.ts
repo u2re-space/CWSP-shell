@@ -1,0 +1,1 @@
+../../../../../modules/subsystem/src/boot/registry.ts

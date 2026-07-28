@@ -1,0 +1,103 @@
+{
+    "manifest_version": 3,
+    "name": "CWSP-shell",
+    "description": "Snip & Process (AI/OCR), Markdown Viewer, Math/Content Conversion (LaTeX/MathML/HTML/Markdown)",
+    "version": "1.0.0",
+    "action": {
+        "default_popup": "popup/index.html",
+        "default_title": "CWSP-shell"
+    },
+    "chrome_url_overrides": {},
+    "options_ui": {
+        "page": "settings/index.html",
+        "open_in_tab": true
+    },
+    "background": {
+        "service_worker": "sw.ts",
+        "type": "module"
+    },
+    "permissions": [
+        "tabs",
+        "storage",
+        "activeTab",
+        "scripting",
+        "webRequest",
+        "clipboardWrite",
+        "clipboardRead",
+        "contextMenus",
+        "nativeMessaging",
+        "tabCapture",
+        "downloads",
+        "webNavigation",
+        "offscreen",
+        "notifications",
+        "commands",
+        "desktopCapture"
+    ],
+    "content_security_policy": {
+        "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https: ws: wss: http://127.0.0.1:* http://localhost:* https://cdn.jsdelivr.net https://unpkg.com data: blob:; frame-src https://u2re.space https://*.u2re.space *;",
+        "sandbox": "sandbox allow-scripts allow-forms allow-popups allow-modals; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' 'wasm-eval' http://**/* https://**/* file://**/*; child-src 'self';"
+    },
+    "host_permissions": [
+        "<all_urls>",
+        "file://**/*",
+        "file:///**/*",
+        "https://u2re.space/*",
+        "https://*.u2re.space/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>",
+                "file:///**/*",
+                "file://**/*"
+            ],
+            "js": [
+                "content/main.ts"
+            ],
+            "run_at": "document_start"
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "markdown/viewer.html",
+                "offscreen/*",
+                "app/*",
+                "assets/*",
+                "chunks/*",
+                "vendor/*",
+                "fest/*",
+                "com/*",
+                "core/*",
+                "views/*",
+                "shells/*",
+                "workers/**/*",
+                "pwa/*",
+                "icons/*"
+            ],
+            "matches": [
+                "<all_urls>"
+            ]
+        }
+    ],
+    "commands": {
+        "crx-snip-text": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+X",
+                "mac": "Command+Shift+X"
+            },
+            "description": "Process selected text with CWSP-shell CRX-Snip"
+        },
+        "crx-snip-screen": {
+            "suggested_key": {
+                "default": "Ctrl+Shift+Y",
+                "mac": "Command+Shift+Y"
+            },
+            "description": "Capture and process screen area with CWSP-shell CRX-Snip"
+        }
+    },
+    "icons": {
+        "512": "icons/icon.png"
+    }
+}

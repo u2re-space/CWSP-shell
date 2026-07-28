@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="text-scale" content="scale" />
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=overlays-content" />
+    <title>CWSP-shell</title>
+    <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiBmaWxsPSIjMDA3YWNjIj4KICA8cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjY0IiBmaWxsPSIjMDA3YWNjIi8+CiAgPHRleHQgeD0iMjU2IiB5PSIyODAiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMDAiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Q1c8L3RleHQ+Cjwvc3ZnPg==" />
+    <link rel="manifest" href="/pwa/manifest.json" />
+    <meta name="theme-color" content="#007acc" data-theme-color />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta http-equiv="Permissions-Policy" content="accelerometer=*, gyroscope=*, magnetometer=*" />
+    <meta name="display-override" content="window-controls-overlay" />
+    <meta name="side-panel" content="delegate" />
+
+    <!-- Critical initial styles to prevent FOUC and ensure proper rendering -->
+    <style data-owner="critical-init">
+        @layer ui-system {
+
+            /* Hide undefined custom elements and problematic elements during load */
+            /*:where(*):not(:defined) {
+                opacity: 0 !important;
+                visibility: collapse !important;
+                pointer-events: none !important;
+                display: none !important;
+            }*/
+
+            /* Hide script, link, style elements to prevent visual glitches */
+            :where(link, script, style) {
+                display: none !important;
+                pointer-events: none !important;
+                visibility: hidden !important;
+            }
+
+            @media screen {
+
+                /* Ensure html and body have no padding/margin and correct sizing */
+                html,
+                body {
+                    padding: 0 !important;
+                    margin: 0 !important;
+                    box-sizing: border-box !important;
+                    border: none !important;
+                    outline: none !important;
+                    overflow: hidden !important;
+                }
+
+                /* Full viewport body sizing */
+                html {
+                    inline-size: 100% !important;
+                    block-size: 100% !important;
+                    max-inline-size: 100% !important;
+                    max-block-size: 100% !important;
+                    min-inline-size: 100% !important;
+                    min-block-size: 100% !important;
+                }
+
+                body {
+                    display: grid !important;
+                    grid-template-columns: 1fr !important;
+                    grid-template-rows: 1fr !important;
+                    place-content: stretch !important;
+                    place-items: stretch !important;
+                    position: relative !important;
+                    inline-size: 100% !important;
+                    block-size: 100% !important;
+                    max-inline-size: 100% !important;
+                    max-block-size: 100% !important;
+                    min-inline-size: 100% !important;
+                    min-block-size: 100% !important;
+                    container-type: size !important;
+                    contain: strict !important;
+                }
+
+                /* App container styling */
+                #app {
+                    display: grid !important;
+                    grid-template-columns: 1fr !important;
+                    grid-template-rows: 1fr !important;
+                    place-content: stretch !important;
+                    place-items: stretch !important;
+                    inline-size: 100% !important;
+                    block-size: 100% !important;
+                    max-inline-size: 100% !important;
+                    max-block-size: 100% !important;
+                    min-inline-size: 0 !important;
+                    min-block-size: 0 !important;
+                    padding: 0 !important;
+                    margin: 0 !important;
+                    border: none !important;
+                    outline: none !important;
+                    overflow: hidden !important;
+                    position: relative !important;
+                    container-type: size !important;
+                    contain: strict !important;
+                }
+
+                /* Loading state */
+                #app:empty::before {
+                    content: "Loading CWSP-shell..." !important;
+                    display: flex !important;
+                    align-items: center !important;
+                    justify-content: center !important;
+                    inline-size: 100% !important;
+                    block-size: 100% !important;
+                    font-family:
+                        system-ui,
+                        -apple-system,
+                        sans-serif !important;
+                    font-size: 1.2rem !important;
+                    color: #666 !important;
+                    background: #1a1a1a !important;
+                    /* Dark background for consistency */
+                    position: absolute !important;
+                    inset: 0 !important;
+                    z-index: 9999 !important;
+                }
+
+                .loading-spinner {
+                    border: 4px solid rgba(255, 255, 255, 0.3);
+                    border-top: 4px solid #007acc;
+                    border-radius: 50%;
+                    width: 40px;
+                    height: 40px;
+                    animation: spin 1s linear infinite;
+                    margin-bottom: 15px;
+                }
+
+                @keyframes spin {
+                    0% {
+                        transform: rotate(0deg);
+                    }
+
+                    100% {
+                        transform: rotate(360deg);
+                    }
+                }
+
+                .loading-message {
+                    font-family: "Inter", sans-serif;
+                    font-size: 1rem;
+                    color: #e8e8e8;
+                }
+            }
+
+            /* Hide script, link, style elements to prevent visual glitches */
+            :where(link, head, script, style, meta) {
+                display: none !important;
+                pointer-events: none !important;
+                interactivity: inert !important;
+                user-select: none !important;
+                touch-action: none !important;
+                visibility: hidden !important;
+            }
+
+            @media screen {
+                /*:where(*):not(:defined) {
+                    opacity: 0;
+                    visibility: collapse;
+                    pointer-events: none;
+                    display: none;
+                    background-color: transparent;
+                    color: transparent;
+                }*/
+
+                /* */
+                :where(*) {
+                    box-sizing: border-box;
+                }
+
+                /* */
+                html {
+                    padding: 0px;
+                    margin: 0px;
+                    box-sizing: border-box;
+                    border: none 0px transparent;
+                    outline: none 0px transparent;
+
+                    /* */
+                    container-type: size;
+                    contain: strict;
+
+                    /* */
+                    inline-size: min(100cqi, 100dvi);
+                    block-size: min(100cqb, 100dvb);
+
+                    /* */
+                    max-inline-size: min(100cqi, 100dvi);
+                    max-block-size: min(100cqb, 100dvb);
+                }
+
+                /* */
+                body {
+                    display: grid;
+                    grid-template-columns: minmax(0px, 1fr);
+                    grid-template-rows: minmax(0px, 1fr);
+                    overflow: hidden;
+                    flex-direction: column;
+                    pointer-events: none;
+                    padding: 0px;
+                    margin: 0px;
+                    place-content: center;
+                    place-items: center;
+                    align-content: start;
+                    align-items: start;
+                    position: relative;
+
+                    /* */
+                    border: none 0px transparent;
+                    outline: none 0px transparent;
+
+                    /* */
+                    container-type: size;
+                    contain: strict;
+
+                    /* */
+                    max-inline-size: max(100%, min(100cqi, 100dvi));
+                    max-block-size: max(100%, min(100cqb, 100dvb));
+
+                    /* */
+                    inline-size: stretch;
+                    block-size: stretch;
+
+                    /* */
+                    min-inline-size: stretch;
+                    min-block-size: max(100cqb, 100dvb);
+
+                    /* */
+                    pointer-events: auto;
+                    overflow: hidden;
+                    align-content: start;
+                    align-items: start;
+                    inset-block-end: auto;
+                    inset-block-start: 0px;
+                    border: none 0px transparent;
+                    outline: none 0px transparent;
+
+                    /* */
+                    container-type: size;
+                    contain: strict;
+                }
+
+                /* */
+                body>#app {
+                    max-inline-size: stretch;
+                    max-block-size: stretch;
+
+                    /* */
+                    inline-size: stretch;
+                    block-size: stretch;
+
+                    /* */
+                    min-inline-size: 0px;
+                    min-block-size: 0px;
+
+                    /* */
+                    grid-column: 1 / -1;
+                    grid-row: 1 / -1;
+
+                    /* */
+                    display: grid;
+                    grid-template-columns: minmax(0px, 1fr);
+                    grid-template-rows: minmax(0px, 1fr);
+
+                    /* */
+                    pointer-events: none;
+                    position: absolute;
+                    inset: 0px;
+
+                    /* */
+                    inset-inline-end: auto;
+                    inset-block-end: auto;
+                    overflow: hidden;
+
+                    /* */
+                    container-type: size;
+                    contain: strict;
+
+                    /* */
+                    margin: 0px;
+                    padding: 0px;
+                    border: none 0px transparent;
+                    outline: none 0px transparent;
+                    scrollbar-width: none;
+
+                    /* */
+                    pointer-events: auto;
+                    background-color: light-dark(#f2f4f8, #121418);
+                    inline-size: stretch;
+                    block-size: stretch;
+                    max-block-size: stretch;
+                    max-inline-size: stretch;
+                    contain: strict;
+                    border: none 0px transparent;
+                    outline: none 0px transparent;
+                }
+
+                /* fix virtual keyboard and overlays issues */
+                #overlays {
+                    transition: block-size 100ms step-end;
+                    inline-size: 100dvi;
+                    block-size: min(100dvb, var(--view-height, 100dvb));
+                    position: fixed;
+                }
+
+                #filter {
+                    mix-blend-mode: multiply;
+                    inset: 0px;
+                    position: fixed;
+                    margin: 0px;
+                    padding: 0px;
+                    border: none 0px transparent;
+                    outline: none 0px transparent;
+                    min-inline-size: 0px;
+                    min-block-size: 0px;
+                    inline-size: stretch;
+                    block-size: stretch;
+                    max-inline-size: min(100%, min(100cqi, 100dvi));
+                    max-block-size: min(100%, min(100cqb, 100dvb));
+                    background-color: oklch(calc(var(--brightness, 1) * 0.4 + 0.6) calc(var(--night-mode, 0) * 0.05) 35);
+                    pointer-events: none;
+                    z-index: 9999999;
+                    content-visibility: visible;
+                    transform: translateZ(0px);
+                }
+            }
+
+            @media print {
+                :where(body) {
+                    min-block-size: max(100%, 100cqb) !important;
+                    block-size: max-content !important;
+                    min-inline-size: stretch !important;
+                    inline-size: 100dvi !important;
+                    max-inline-size: 100dvi !important;
+                    max-block-size: none !important;
+                    overflow: visible !important;
+                }
+
+                :where(body, html) {
+                    place-content: start;
+                    place-items: start;
+                    text-align: start;
+                    padding: 0px;
+                    margin: 0px;
+                    border: none;
+                    outline: none;
+                    box-shadow: none;
+                    scrollbar-width: none;
+                    scrollbar-color: transparent transparent;
+                    -webkit-overflow-scrolling: touch;
+                    font-family: var(--print-font-family);
+                    min-block-size: max(100%, 100cqb) !important;
+                    max-block-size: none !important;
+                    block-size: max-content !important;
+                    overflow: visible !important;
+
+                    min-inline-size: stretch !important;
+                    inline-size: 100dvi !important;
+                    max-inline-size: 100dvi !important;
+                    font-size: 16px !important;
+                }
+
+                :where(body, html, :root)>*:not([hidden], [aria-hidden="true"], [data-hidden]):not(markdown-viewer, #markdown-body, .view-markdown, #app, .app-shell, .app-shell__content, .cw-view-viewer-shell, .cw-view-viewer__prose, [data-cw-viewer-prose], .view-viewer, .view-viewer__content, [data-viewer-content], [data-render-target], .markdown-body, .markdown-viewer-content, .result-content),
+                :where(body, html, :root) :where(#app, #raw-md),
+                :where(body, html, :root) :where(div, span, button, input, header, main, footer):not([hidden], [aria-hidden="true"], [data-hidden]):not(markdown-viewer, #markdown-body, .view-markdown, #app, .app-shell, .app-shell__content, .cw-view-viewer-shell, .cw-view-viewer__prose, [data-cw-viewer-prose], .view-viewer, .view-viewer__content, [data-viewer-content], [data-render-target], .markdown-body, .markdown-viewer-content, .result-content) {
+                    page-break-after: avoid !important;
+                    page-break-before: avoid !important;
+                    break-after: avoid !important;
+                    break-before: avoid !important;
+                }
+
+                .cw-view-viewer-shell,
+                .cw-view-viewer__prose,
+                [data-cw-viewer-prose],
+                .view-viewer,
+                .view-viewer__content,
+                [data-viewer-content] {
+                    display: contents !important;
+                    page-break-after: avoid !important;
+                    page-break-before: avoid !important;
+                    break-after: avoid !important;
+                    break-before: avoid !important;
+                }
+
+                body,
+                html,
+                :root {
+                    background-color: initial;
+                    color: initial;
+                    padding: 0px !important;
+                    margin: 0px !important;
+                    overflow-x: hidden !important;
+                    overflow-y: visible !important;
+                    container-type: inline-size !important;
+                    border: 0px none transparent !important;
+                    outline: 0px none transparent !important;
+                    max-block-size: none !important;
+                    min-block-size: max(100%, 100cqb) !important;
+                    block-size: max-content !important;
+                }
+
+                :where(*) {
+                    scrollbar-width: none;
+                    -ms-overflow-style: none;
+
+                    &::-webkit-scrollbar {
+                        display: none;
+                    }
+                }
+
+                .loading-spinner,
+                .loading-message,
+                [data-hidden],
+                [hidden],
+                [aria-hidden="true"],
+                .view-viewer__toolbar,
+                [data-viewer-toolbar],
+                button,
+                nav,
+                .app-shell__loading,
+                head,
+                .app-loading,
+                .app-shell__status,
+                #raw-md,
+                .markdown-viewer-raw {
+
+                    &,
+                    & *:not(#app, .app-shell, .cw-view-viewer-shell, .cw-view-viewer__prose, [data-cw-viewer-prose], .view-viewer, .view-viewer__content, .app-shell__content, .markdown-body, .markdown-viewer-content, .result-content) {
+                        display: none !important;
+                        position: absolute !important;
+                        inset: 0 !important;
+                        z-index: -1 !important;
+                        opacity: 0 !important;
+                        inline-size: 0 !important;
+                        block-size: 0 !important;
+                        border: none !important;
+                        outline: none !important;
+                        box-shadow: none !important;
+                        scrollbar-width: none !important;
+                        scrollbar-color: transparent transparent !important;
+                        overflow: hidden !important;
+                        -webkit-overflow-scrolling: touch !important;
+                        padding: 0 !important;
+                        margin: 0 !important;
+                        font: initial !important;
+                        font-size: initial !important;
+                        font-weight: initial !important;
+                        font-family: initial !important;
+                        font-style: initial !important;
+                        font-variant: initial !important;
+                        line-height: 0 !important;
+                        color: transparent !important;
+                        background: transparent !important;
+                        pointer-events: none !important;
+                        user-select: none !important;
+                        touch-action: none !important;
+                        cursor: none !important;
+                        opacity: 0 !important;
+                        visibility: collapse !important;
+                        pointer-events: none !important;
+                        interactivity: inert !important;
+                        break-after: avoid !important;
+                        break-before: avoid !important;
+                        font-size: 0 !important;
+                        line-height: 0 !important;
+                        overflow: hidden !important;
+                        contain: strict !important;
+                        page-break-after: avoid !important;
+                        page-break-before: avoid !important;
+                        break-after: avoid !important;
+                        break-before: avoid !important;
+                    }
+                }
+
+                #app,
+                .app-shell,
+                .cw-view-viewer-shell,
+                .cw-view-viewer__prose,
+                [data-cw-viewer-prose],
+                .view-viewer,
+                .view-viewer__md-root,
+                .view-viewer__content,
+                .app-shell__content,
+                .markdown-body,
+                .markdown-viewer-content,
+                .result-content,
+                [data-app-layer="shell"] {
+                    display: contents !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    border: none !important;
+                    outline: none !important;
+                    box-shadow: none !important;
+                    overflow: visible !important;
+                    scrollbar-width: none !important;
+                    scrollbar-color: transparent transparent !important;
+                    -webkit-overflow-scrolling: touch !important;
+                    page-break-after: avoid !important;
+                    page-break-before: avoid !important;
+                    break-after: avoid !important;
+                    break-before: avoid !important;
+                    contain: none !important;
+                    container-type: normal !important;
+                    content-visibility: visible !important;
+                    visibility: visible !important;
+                    opacity: 1 !important;
+                    pointer-events: auto !important;
+                    user-select: auto !important;
+                    touch-action: auto !important;
+                    cursor: auto !important;
+                    opacity: 1 !important;
+                    max-block-size: none !important;
+                    min-block-size: max(100%, 100cqb) !important;
+                    block-size: max-content !important;
+                }
+            }
+        }
+    </style>
+    <link rel="modulepreload" href="/src/index.ts" fetchpriority="high" />
+    <link rel="modulepreload" href="/src/frontend/boot/html-boot.ts" fetchpriority="high" />
+</head>
+
+<body>
+    <div id="app">
+        <div class="loading-spinner"></div>
+        <div class="loading-message">Initializing application...</div>
+    </div>
+    <script type="module" src="/src/frontend/boot/html-boot.ts"></script>
+</body>
+
+</html>

@@ -1,0 +1,413 @@
+{
+    "include": [
+        "**/*.ts",
+        "**/*.mjs",
+        "**/*.js",
+        "**/*.d.ts",
+        "**/*.tsx",
+        "src/**/*.ts",
+        "src/**/*.mjs",
+        "src/**/*.js",
+        "src/**/*.d.ts",
+        "src/**/*.tsx",
+        "cwsp/endpoint/shared/**/*.ts",
+        "../../modules/projects/**/*.ts",
+        "../../modules/projects/**/*.tsx"
+    ],
+    "exclude": [
+        "node_modules/**",
+        "dist/**",
+        "build/**",
+        "coverage/**",
+        "logs/**",
+        "cache/**",
+        "temp/**",
+        "tmp/**",
+        "temp/**",
+        "./src/**/*.js",
+        "./src/**/*.jsx"
+    ],
+    "compilerOptions": {
+        "skipLibCheck": true,
+        "jsx": "preserve",
+        "paths": {
+            "frontend/shared/*": [
+                "./src/frontend/shared/*"
+            ],
+            "frontend/pwa/*": [
+                "./src/frontend/pwa/*"
+            ],
+            "frontend/shells/*": [
+                "./src/frontend/shells/*"
+            ],
+            "@phosphor-icons/core/assets/*": [
+                "./node_modules/@phosphor-icons/core/assets/*"
+            ],
+            "icons/*": [
+                "./node_modules/@phosphor-icons/core/assets/*"
+            ],
+            "assets/fonts/*": [
+                "./assets/fonts/*"
+            ],
+            "assets/*": [
+                "./assets/*"
+            ],
+            "shells/types": [
+                "./src/frontend/shells/types.ts"
+            ],
+            "shells/boot": [
+                "./src/frontend/shells/boot/index.ts"
+            ],
+            "shells/window": [
+                "./src/frontend/ai-slop/window/index.ts"
+            ],
+            "shells/window/tabbed": [
+                "./src/frontend/ai-slop/window/tabbed.ts"
+            ],
+            "shells/window/environment": [
+                "./src/frontend/ai-slop/window/environment.ts"
+            ],
+            "fest/core": [
+                "../../modules/projects/core.ts/src/index.ts"
+            ],
+            "fest/dom": [
+                "../../modules/projects/dom.ts/src/index.ts"
+            ],
+            "fest/fl-ui": [
+                "../../modules/projects/fl.ui/src/index.ts"
+            ],
+            "fest/lure": [
+                "../../modules/projects/lur.e/src/index.ts"
+            ],
+            "fest/object": [
+                "../../modules/projects/object.ts/src/index.ts"
+            ],
+            "fest/object/*": [
+                "../../modules/projects/object.ts/src/*"
+            ],
+            "fest/uniform": [
+                "../../modules/projects/uniform.ts/src/index.ts"
+            ],
+            "fest/theme": [
+                "../../modules/projects/lur.e/src/index.ts"
+            ],
+            "fest/icon": [
+                "../../modules/projects/icon.ts/src/index.ts"
+            ],
+            "fest/image": [
+                "../../modules/projects/image.ts/src/index.ts"
+            ],
+            "fest/veela/*": [
+                "../../modules/projects/veela.css/src/*"
+            ],
+            "fest/polyfill/*": [
+                "./shared/polyfill/*"
+            ],
+            "com/config/*": [
+                "./src/shared/other/config/*"
+            ],
+            "com/other/*": [
+                "../../modules/projects/subsystem/src/other/*"
+            ],
+            "com/styles": [
+                "../../modules/projects/subsystem/src/styles.ts"
+            ],
+            "com/core/view-ingress-validation": [
+                "../../modules/projects/subsystem/src/core/view-ingress-validation.ts"
+            ],
+            "com/core/*": [
+                "../../modules/projects/subsystem/src/routing/channel/*"
+            ],
+            "com/service/*": [
+                "./src/shared/service/*"
+            ],
+            "com/template/*": [
+                "../../modules/projects/subsystem/src/service/template/*"
+            ],
+            "com/routing/*": [
+                "./src/shared/routing/*"
+            ],
+            "com/store/*": [
+                "./src/shared/store/*"
+            ],
+            "shared/routing/registry": [
+                "./src/shared/routing/core/registry.ts"
+            ],
+            "shared/routing/views": [
+                "./src/shared/routing/core/views.ts"
+            ],
+            "shared/routing/view-prefetch": [
+                "./src/shared/routing/core/view-prefetch.ts"
+            ],
+            "shared/routing/layer-manager": [
+                "./src/shared/routing/core/layer-manager.ts"
+            ],
+            "shared/routing/app-layers": [
+                "./src/shared/routing/core/app-layers.ts"
+            ],
+            "shared/routing/implicit-view-bridge": [
+                "./src/shared/routing/core/implicit-view-bridge.ts"
+            ],
+            "shared/routing/channel-unknown": [
+                "./src/shared/routing/core/channel-unknown.ts"
+            ],
+            "shared/routing/view-transitions": [
+                "../../modules/projects/subsystem/src/routing/core/view-transitions.ts"
+            ],
+            "shared/policies/ingress-pipeline-guard": [
+                "../../modules/projects/subsystem/src/routing/policies/ingress-pipeline-guard.ts"
+            ],
+            "boot/ts/*": [
+                "../../modules/projects/subsystem/src/boot/*"
+            ],
+            "shared/policies/event-handling-policy": [
+                "../../modules/projects/subsystem/src/routing/policies/event-handling-policy.ts"
+            ],
+            "shared/config/*": [
+                "./src/shared/other/config/*"
+            ],
+            "shared/utils/*": [
+                "./src/shared/other/utils/*"
+            ],
+            "shared/native/cws-bridge": [
+                "./src/shared/routing/native/cws-bridge.ts"
+            ],
+            "shared/native/clipboard-device": [
+                "./src/shared/routing/native/clipboard-device.ts"
+            ],
+            "shared/styles": [
+                "./src/shared/styles.ts"
+            ],
+            "shared/transport/hub-socket-boot": [
+                "../../modules/projects/subsystem/src/boot/hub-socket-boot.ts"
+            ],
+            "shared/transport/websocket": [
+                "../../modules/projects/subsystem/src/boot/websocket.ts"
+            ],
+            "shared/pwa/*": [
+                "./src/shared/routing/pwa/*"
+            ],
+            "shared/*": [
+                "./src/shared/*"
+            ],
+            "core/config/*": [
+                "./src/shared/other/config/*"
+            ],
+            "core/document/*": [
+                "./src/shared/other/document/*"
+            ],
+            "core/utils/*": [
+                "./src/shared/other/utils/*"
+            ],
+            "core/workers/*": [
+                "./src/shared/routing/workers/*"
+            ],
+            "core/pwa/*": [
+                "./src/shared/routing/pwa/*"
+            ],
+            "core/store/*": [
+                "./src/shared/store/*"
+            ],
+            "core/constants/*": [
+                "./src/shared/routing/constants/*"
+            ],
+            "core/storage/*": [
+                "./src/shared/store/*"
+            ],
+            "core/service/*": [
+                "./src/shared/service/*"
+            ],
+            "core/modules/Clipboard": [
+                "./src/shared/modules/Clipboard.ts"
+            ],
+            "core/modules/TemplateManager": [
+                "../../modules/projects/lur.e/src/interactive/modules/TemplateManager.ts"
+            ],
+            "core/text": [
+                "./src/shared/text.ts"
+            ],
+            "core/clipboard-device": [
+                "../../modules/projects/subsystem/runtime/clipboard-device.ts"
+            ],
+            "core/*": [
+                "./src/shared/*"
+            ],
+            "cwsp-shared/*": [
+                "../../modules/projects/cwsp-shared/src/*"
+            ],
+            "@fest-lib/cwsp-shared": [
+                "../../modules/projects/cwsp-shared/src/index.ts"
+            ],
+            "@fest-lib/cwsp-shared/*": [
+                "../../modules/projects/cwsp-shared/src/*"
+            ],
+            "@fl-ui/*": [
+                "../../modules/projects/fl.ui/src/ui/*"
+            ],
+            "@shared/*": [
+                "./src/shared/*"
+            ],
+            "fl-ui/*": [
+                "../../modules/projects/fl.ui/src/ui/*"
+            ],
+            "fl-src/*": [
+                "../../modules/projects/fl.ui/src/*"
+            ],
+            "fl-design/*": [
+                "../../modules/projects/fl.ui/src/styles/*"
+            ],
+            "pwa/*": [
+                "./src/pwa/*"
+            ],
+            "crx/*": [
+                "./src/crx/*"
+            ],
+            "frontend/*": [
+                "./src/frontend/*"
+            ],
+            "boot/*": [
+                "./src/frontend/boot/*"
+            ],
+            "test/*": [
+                "./test/*"
+            ],
+            "views/apis/channel-actions": [
+                "../../modules/projects/subsystem/src/routing/api/channel-actions.ts"
+            ],
+            "markdown-view-typography": [
+                "../../modules/views/markdown-view/src/scss/_markdown.scss"
+            ],
+            "markdown-view/viewer": [
+                "../../modules/views/markdown-view/src/needs-to-API.ts"
+            ],
+            "fest/veela/runtime": [
+                "../../modules/projects/subsystem/src/boot/veela-variant-runtime.ts"
+            ],
+            "views/registry": [
+                "../../modules/projects/subsystem/registry.ts"
+            ],
+            "views/types": [
+                "../../modules/projects/subsystem/types.ts"
+            ],
+            "views/viewer": [
+                "../../modules/views/viewer-view/src"
+            ],
+            "views/workcenter": [
+                "../../modules/views/workcenter-view/src"
+            ],
+            "views/settings": [
+                "../../modules/views/settings-view/src"
+            ],
+            "views/history": [
+                "../../modules/views/history-view/src"
+            ],
+            "views/explorer": [
+                "../../modules/views/explorer-view/src"
+            ],
+            "views/network": [
+                "../../modules/views/network-view/src"
+            ],
+            "views/editor": [
+                "../../modules/views/editor-view/src"
+            ],
+            "views/home": [
+                "../../modules/views/home-view/src"
+            ],
+            "views/viewer/*": [
+                "../../modules/views/viewer-view/src/*"
+            ],
+            "views/workcenter/*": [
+                "../../modules/views/workcenter-view/src/*"
+            ],
+            "views/settings/*": [
+                "../../modules/views/settings-view/src/*"
+            ],
+            "views/history/*": [
+                "../../modules/views/history-view/src/*"
+            ],
+            "views/explorer/*": [
+                "../../modules/views/explorer-view/src/*"
+            ],
+            "views/network/*": [
+                "../../modules/views/network-view/src/*"
+            ],
+            "views/editor/*": [
+                "../../modules/views/editor-view/src/*"
+            ],
+            "views/home/*": [
+                "../../modules/views/home-view/src/*"
+            ],
+            "views/*": [
+                "./src/frontend/views/*"
+            ],
+            "shells/minimal/*": [
+                "../../modules/shells/minimal-shell/src/*"
+            ],
+            "shells/content/*": [
+                "../../modules/shells/content-shell/src/*"
+            ],
+            "shells/immersive/index": [
+                "../../modules/shells/immersive-shell/src/index.ts"
+            ],
+            "shells/immersive/*": [
+                "../../modules/shells/immersive-shell/src/*"
+            ],
+            "shells/*": [
+                "./src/frontend/shells/*"
+            ],
+            "veela": [
+                "../../modules/projects/veela.css/src/index.scss"
+            ],
+            "veela-runtime": [
+                "../../modules/projects/veela.css/src/scss/index.scss"
+            ],
+            "veela-runtime/*": [
+                "../../modules/projects/veela.css/src/scss/*"
+            ],
+            "veela-lib": [
+                "../../modules/projects/veela.css/src/scss/index.scss"
+            ],
+            "veela-lib/*": [
+                "../../modules/projects/veela.css/src/scss/*"
+            ]
+        },
+        "types": [
+            "chrome"
+        ],
+        "lib": [
+            "ESNext",
+            "DOM",
+            "DOM.Iterable",
+            "WebWorker"
+        ],
+        "module": "ESNext",
+        "target": "ESNext",
+        "moduleDetection": "auto",
+        "pretty": true,
+        "allowArbitraryExtensions": true,
+        "emitDeclarationOnly": true,
+        "resolveJsonModule": true,
+        "allowSyntheticDefaultImports": true,
+        "moduleResolution": "bundler",
+        "preserveSymlinks": true,
+        "allowImportingTsExtensions": true,
+        "rewriteRelativeImportExtensions": true,
+        "esModuleInterop": true,
+        "verbatimModuleSyntax": true,
+        "allowJs": true,
+        "noEmit": true,
+        "strict": false,
+        "strictNullChecks": false,
+        "allowUnusedLabels": true,
+        "noImplicitAny": false,
+        "declaration": true,
+        "noImplicitThis": false,
+        "inlineSources": true,
+        "inlineSourceMap": true,
+        "sourceMap": false,
+        "experimentalDecorators": true,
+        "noEmitOnError": true,
+        "noEmitHelpers": true
+    },
+    "compileOnSave": false
+}

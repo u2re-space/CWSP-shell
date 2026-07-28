@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en" data-crx-page="popup" data-crx-theme="dark" data-crx-font="system" data-crx-accent="blue">
+<head>
+    <meta charset="UTF-8">
+    <meta name="color-scheme" content="dark light">
+    <meta name="text-scale" content="scale">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CWSP-shell</title>
+    <link rel="stylesheet" href="./index.scss" data-owner="critical-init">
+</head>
+<body data-crx-page="popup">
+    <div id="app">
+
+        <section class="popup-section popup-section--appearance" aria-label="Appearance">
+            <h2>Appearance</h2>
+            <div class="appearance-row">
+                <label class="appearance-field">
+                    <span class="appearance-label">Theme</span>
+                    <select id="crx-theme" title="Color theme">
+                        <option value="system">System</option>
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                    </select>
+                </label>
+                <label class="appearance-field">
+                    <span class="appearance-label">Font</span>
+                    <select id="crx-font" title="UI font">
+                        <option value="system">System</option>
+                        <option value="ui">UI</option>
+                        <option value="mono">Monospace</option>
+                    </select>
+                </label>
+                <label class="appearance-field">
+                    <span class="appearance-label">Accent</span>
+                    <select id="crx-accent" title="Accent color">
+                        <option value="blue">Blue</option>
+                        <option value="violet">Violet</option>
+                        <option value="green">Green</option>
+                        <option value="orange">Orange</option>
+                    </select>
+                </label>
+            </div>
+        </section>
+
+        <!-- Feature 2: Snip & Process -->
+        <section class="popup-section">
+            <h2>Snip &amp; Process</h2>
+            <div class="snip-controls">
+                <select id="snip-action-select">
+                    <option value="START_SNIP">📝 Recognize (OCR/AI)</option>
+                    <option value="SOLVE_AND_ANSWER">🧮 Solve / Answer</option>
+                    <option value="WRITE_CODE">💻 Generate Code</option>
+                    <option value="EXTRACT_CSS">🎨 Extract CSS</option>
+                    <option value="CRX_SNIP_SCREEN">📸 Rectangle Capture</option>
+                </select>
+                <button type="button" id="snip-do" title="Execute selected action">⚡ Go</button>
+            </div>
+        </section>
+
+        <!-- Feature 3: Copy / Convert -->
+        <section id="copy-section" class="popup-section" hidden>
+            <h2>Process &amp; Copy</h2>
+            <p id="selection-empty" class="selection-empty">Select text in the page to use this action.</p>
+            <div class="selection-copy-row selection-copy-row--wrap">
+                <button type="button" id="selection-process" title="Process selected text with CRX-Snip">📋 Process Selected Text</button>
+                <div class="copy-grid">
+                    <button type="button" data-copy="copy-as-latex" title="Copy as LaTeX">LaTeX</button>
+                    <button type="button" data-copy="copy-as-mathml" title="Copy as MathML">MathML</button>
+                    <button type="button" data-copy="copy-as-markdown" title="Copy as Markdown">Markdown</button>
+                    <button type="button" data-copy="copy-as-html" title="Copy as HTML">HTML</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Feature 1: Markdown Viewer -->
+        <section class="popup-section">
+            <h2>Markdown Viewer</h2>
+            <div class="md-controls">
+                <input type="url" id="md-url" placeholder="URL, or file path (e.g. C:\notes\doc.md)…" >
+                <button type="button" id="md-open" title="Open in viewer">Open</button>
+            </div>
+        </section>
+
+        <!-- Settings (collapsible) — summary styled as a visible control (not a bare text row) -->
+        <details class="popup-settings-disclosure">
+            <summary class="popup-settings-summary"><span class="popup-settings-summary__icon" aria-hidden="true">⚙</span><span class="settings-summary-title">Settings</span><span class="popup-settings-summary__hint" aria-hidden="true">▼</span></summary>
+            <section class="popup-section">
+                <form id="settings-form"><ul>
+                    <li>
+                        <label for="response-language">Response Language</label>
+                        <select id="response-language">
+                            <option value="auto">Auto-detect</option>
+                            <option value="follow">Follow source/context</option>
+                            <option value="en">English</option>
+                            <option value="ru">Русский</option>
+                        </select>
+                    </li>
+                    <li>
+                        <label for="translate-results">Translate Results</label>
+                        <input type="checkbox" id="translate-results" class="settings-grid-input" >
+                    </li>
+                    <li>
+                        <label for="generate-svg" title="Generate inline SVG graphics for graphs, diagrams, and visualizations">Generate SVG</label>
+                        <input type="checkbox" id="generate-svg" class="settings-grid-input" >
+                    </li>
+                    <li>
+                        <label for="api-url">API URL</label>
+                        <input keyboard-type="url" type="url" id="api-url" >
+                    </li>
+                    <li>
+                        <label for="api-key">API Key</label>
+                        <input keyboard-type="password" type="password" id="api-key" autocomplete="off">
+                        <input type="checkbox" id="show-api-key" class="show-api-key-toggle" >
+                    </li>
+                    <li>
+                        <label for="model">Model</label>
+                        <select id="model">
+                            <option value="gpt-5.6-luna">gpt-5.6-luna</option>
+                        </select>
+                    </li>
+                    <li id="custom-model-row">
+                        <label for="custom-model">Custom Model</label>
+                        <input keyboard-type="text" type="text" id="custom-model" placeholder="provider/model-or-id" autocomplete="off">
+                    </li>
+                    <li>
+                        <label for="default-reasoning-effort">Reasoning Effort</label>
+                        <select id="default-reasoning-effort">
+                            <option value="none">None</option>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                    </li>
+                    <li class="settings-grid-full">
+                        <details>
+                            <summary><strong>Advanced AI settings</strong></summary>
+                            <ul>
+                                <li>
+                                    <label for="default-verbosity">Verbosity</label>
+                                    <select id="default-verbosity">
+                                        <option value="low">Low</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="high">High</option>
+                                    </select>
+                                </li>
+                                <li>
+                                    <label for="max-output-tokens">Max Output Tokens</label>
+                                    <input keyboard-type="number" type="number" id="max-output-tokens" placeholder="400000">
+                                </li>
+                                <li>
+                                    <label for="context-truncation">Context Truncation</label>
+                                    <select id="context-truncation">
+                                        <option value="disabled">Disabled</option>
+                                        <option value="auto">Auto</option>
+                                    </select>
+                                </li>
+                                <li>
+                                    <label for="prompt-cache-retention">Prompt Cache Retention</label>
+                                    <select id="prompt-cache-retention">
+                                        <option value="in-memory">In-memory</option>
+                                        <option value="24h">24h</option>
+                                    </select>
+                                </li>
+                                <li>
+                                    <label for="max-tool-calls">Max Tool Calls</label>
+                                    <input keyboard-type="number" type="number" id="max-tool-calls" placeholder="8">
+                                </li>
+                                <li>
+                                    <label for="parallel-tool-calls">Parallel Tool Calls</label>
+                                    <input type="checkbox" id="parallel-tool-calls" class="settings-grid-input" >
+                                </li>
+                                <li>
+                                    <label for="timeout-low">Timeout Low (ms)</label>
+                                    <input keyboard-type="number" type="number" id="timeout-low" placeholder="60000">
+                                </li>
+                                <li>
+                                    <label for="timeout-medium">Timeout Medium (ms)</label>
+                                    <input keyboard-type="number" type="number" id="timeout-medium" placeholder="300000">
+                                </li>
+                                <li>
+                                    <label for="timeout-high">Timeout High (ms)</label>
+                                    <input keyboard-type="number" type="number" id="timeout-high" placeholder="900000">
+                                </li>
+                                <li>
+                                    <label for="max-retries">Max Retries</label>
+                                    <input keyboard-type="number" type="number" id="max-retries" placeholder="2">
+                                </li>
+                            </ul>
+                        </details>
+                    </li>
+                    <li class="settings-grid-full">
+                        <label>MCP Servers</label>
+                        <p id="mcp-validation-error" class="mcp-error" aria-live="polite"></p>
+                        <div id="mcp-config-list" class="mcp-list" aria-live="polite"></div>
+                        <div class="mcp-actions">
+                            <button type="button" id="mcp-add">Add MCP server</button>
+                            <button type="button" id="mcp-import">Import MCP</button>
+                            <button type="button" id="mcp-export">Export MCP</button>
+                            <input type="file" id="mcp-import-file" accept="application/json" >
+                        </div>
+                    </li>
+                    <li class="settings-save-row">
+                        <button type="submit" id="save-settings">Save Settings</button>
+                    </li>
+                </ul></form>
+            </section>
+        </details>
+    </div>
+    <script src="./index.ts" type="module" async defer></script>
+</body>
+</html>
