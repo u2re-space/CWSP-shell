@@ -260,7 +260,7 @@
                 "./src/pwa/*"
             ],
             "crx/*": [
-                "./src/crx/*"
+                "../CWSP-crx/src/crx/*"
             ],
             "frontend/*": [
                 "./src/frontend/*"

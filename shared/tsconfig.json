@@ -80,15 +80,15 @@
             "pwa/*": [
                 "../src/pwa/*"
             ],
-            "crx/*": [
-                "../src/crx/*"
-            ],
             "com/*": [
                 "../src/com/*"
             ],
             "core/*": [
                 "../src/shared/*",
                 "../src/core/*"
+            ],
+            "crx/*": [
+                "../../CWSP-crx/src/crx/*"
             ],
             "frontend/*": [
                 "../src/frontend/*"

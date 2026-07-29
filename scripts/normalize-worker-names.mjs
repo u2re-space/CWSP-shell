@@ -188,7 +188,6 @@ async function run() {
         ? [resolve(appRoot, argDir)]
         : [
               resolve(appRoot, "dist"),
-              resolve(appRoot, "dist-crx"),
               resolve(appRoot, "build/cw-markdown")
           ];
     const results = [];

@@ -18,13 +18,13 @@ const moduleBuildTargets = [
 
 const targetMap = {
     pwa: { cwd: appRoot, command: "npm", args: ["run", "build:pwa"] },
-    crx: { cwd: appRoot, command: "npm", args: ["run", "build:crx"] },
 };
 
 const normalizeTargets = (raw) => {
-    if (!raw.length) return ["pwa", "crx"];
-    if (raw.includes("all")) return ["pwa", "crx", "modules"];
-    return raw;
+    // WHY: CRX builds moved to apps/CWSP-crx — this package is PWA-only.
+    if (!raw.length) return ["pwa"];
+    if (raw.includes("all")) return ["pwa", "modules"];
+    return raw.filter((name) => name !== "crx");
 };
 
 const startBuild = (name, cwd, command, args) => {

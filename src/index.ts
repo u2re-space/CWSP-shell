@@ -324,9 +324,10 @@ export default async function index(mountElement: HTMLElement) {
             preferredShell === "window" ||
             preferredShell === "environment" ||
             preferredShell === "tabbed";
+        // WHY: environment owns wallpaper via env-shell underlying `ui-canvas` — avoid a second app canvas.
         const layers = ensureAppLayers(mountElement, {
             enableOrientLayer: useDesktopLayers,
-            enableCanvasLayer: useDesktopLayers,
+            enableCanvasLayer: preferredShell === "window" || preferredShell === "tabbed",
         });
         clearLoadingState(mountElement);
 
