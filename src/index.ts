@@ -303,12 +303,18 @@ export default async function index(mountElement: HTMLElement) {
                 /* localStorage unavailable */
             }
         }
+        const nativeMono =
+            urlParams.get("native") === "1" || urlParams.get("native") === "true";
         const preferredShell: ShellId =
             queryShell ||
             (explicitRequestedView === "print"
                 ? "base"
-                : (getSavedShellPreference() ?? "environment"));
+                : // WHY: mono native tasks need environment ui-window layer (WCO / full-bleed).
+                  nativeMono
+                    ? "environment"
+                    : (getSavedShellPreference() ?? "environment"));
         // WHY: environment / window shells open on home (Speed Dial); minimal keeps Capacitor Network home.
+        // Mono `?native=1` with `/explorer` (or ?view=) opens that view in native-mode window.
         const requestedView = explicitRequestedView || (
             preferredShell === "minimal"
                 ? pickEnabledView("network", "viewer")
