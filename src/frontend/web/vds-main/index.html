@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-cwsp-surface="vds-main">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=overlays-content" />
+    <title>CWSP-shell</title>
+    <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiBmaWxsPSIjMDA3YWNjIj4KICA8cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjY0IiBmaWxsPSIjMDA3YWNjIi8+CiAgPHRleHQgeD0iMjU2IiB5PSIyODAiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMDAiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Q1c8L3RleHQ+Cjwvc3ZnPg==" />
+    <!-- WHY: relative so u2re.space root SPA resolves under Vite base "./". -->
+    <link rel="manifest" href="./pwa/manifest.json" />
+    <meta name="theme-color" content="#007acc" data-theme-color />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="description" content="CWSP-shell — U2RE environment workspace" />
+    <style>
+        html, body { margin: 0; padding: 0; inline-size: 100%; block-size: 100%; overflow: hidden; }
+        #app {
+            display: grid; place-items: center; inline-size: 100%; block-size: 100%;
+            min-block-size: 100dvb; font-family: system-ui, sans-serif; background: #121418; color: #e8e8e8;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">Loading CWSP-shell…</div>
+    <script type="module" src="./entry.ts"></script>
+</body>
+</html>

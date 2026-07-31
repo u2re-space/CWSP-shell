@@ -295,7 +295,10 @@ export default async function index(mountElement: HTMLElement) {
                 : (sharedFlag === "1" || sharedFlag === "true" || markdownContent)
                     ? pickEnabledView("viewer", "home")
                     : null;
-        const queryShell = getShellFromQuery();
+        // WHY: u2re.space (`vds-main`) always boots environment — never honor ?shell=minimal.
+        const forceEnvironmentSurface =
+            document.documentElement.dataset.cwspSurface === "vds-main";
+        const queryShell = forceEnvironmentSurface ? null : getShellFromQuery();
         if (queryShell) {
             try {
                 localStorage.setItem("rs-boot-shell", queryShell);
@@ -303,16 +306,24 @@ export default async function index(mountElement: HTMLElement) {
                 /* localStorage unavailable */
             }
         }
+        if (forceEnvironmentSurface) {
+            try {
+                localStorage.setItem("rs-boot-shell", "environment");
+            } catch {
+                /* localStorage unavailable */
+            }
+        }
         const nativeMono =
             urlParams.get("native") === "1" || urlParams.get("native") === "true";
-        const preferredShell: ShellId =
-            queryShell ||
-            (explicitRequestedView === "print"
-                ? "base"
-                : // WHY: mono native tasks need environment ui-window layer (WCO / full-bleed).
-                  nativeMono
-                    ? "environment"
-                    : (getSavedShellPreference() ?? "environment"));
+        const preferredShell: ShellId = forceEnvironmentSurface
+            ? "environment"
+            : queryShell ||
+              (explicitRequestedView === "print"
+                  ? "base"
+                  : // WHY: mono native tasks need environment ui-window layer (WCO / full-bleed).
+                    nativeMono
+                      ? "environment"
+                      : (getSavedShellPreference() ?? "environment"));
         // WHY: environment / window shells open on home (Speed Dial); minimal keeps Capacitor Network home.
         // Mono `?native=1` with `/explorer` (or ?view=) opens that view in native-mode window.
         const requestedView = explicitRequestedView || (

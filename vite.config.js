@@ -1,8 +1,8 @@
 /*
  * Filename: vite.config.js
  * FullPath: apps/CWSP-shell/vite.config.js
- * Change date and time: 08.40.00_29.07.2026
- * Reason for changes: Drop CRX mode — Chrome extension builds live only in apps/CWSP-crx.
+ * Change date and time: 07.36.00_31.07.2026
+ * Reason for changes: Add vds-main SPA mode for u2re.space Fastify apps/main.
  */
 
 import { resolve } from "node:path";
@@ -30,6 +30,9 @@ const DEFAULT_VIEWS_BY_MODE = {
     // VDS md.u2re.space / /markdown/ — markdown workspace (viewer + workcenter tools).
     markdown: ["viewer", "workcenter", "editor", "settings", "history", "home", "print"],
     "cw-markdown": ["viewer", "workcenter", "editor", "settings", "history", "home", "print"],
+    // VDS u2re.space main hub — full CWSP-shell environment.
+    "vds-main": [...ALL_VIEW_IDS],
+    shell: [...ALL_VIEW_IDS],
     default: ALL_VIEW_IDS,
 };
 
@@ -54,7 +57,9 @@ const resolveEnabledViews = (mode, env) => {
     const defaults =
         mode === "markdown" || mode === "cw-markdown"
             ? DEFAULT_VIEWS_BY_MODE.markdown
-            : DEFAULT_VIEWS_BY_MODE.default;
+            : mode === "vds-main" || mode === "shell"
+              ? DEFAULT_VIEWS_BY_MODE["vds-main"]
+              : DEFAULT_VIEWS_BY_MODE.default;
     const explicit = parseViewsFromEnv(env?.VITE_ENABLED_VIEWS);
     const disabled = parseViewsFromEnv(env?.VITE_DISABLED_VIEWS);
     const start = explicit ?? defaults;
@@ -80,37 +85,44 @@ const toViewDefineEntries = (enabledViews) => {
 const createViewDefine = (mode) => {
     const env = loadEnv(mode || "production", __dirname, "");
     const enabledViews = resolveEnabledViews(mode, env);
-    const defaultView = enabledViews.includes("viewer")
-        ? "viewer"
-        : enabledViews[0] || "viewer";
+    // WHY: VDS hub boots into environment Home / Speed Dial, not Markdown viewer.
+    const preferredDefault =
+        mode === "vds-main" || mode === "shell"
+            ? "home"
+            : mode === "markdown" || mode === "cw-markdown"
+              ? "viewer"
+              : "home";
+    const defaultView = enabledViews.includes(preferredDefault)
+        ? preferredDefault
+        : enabledViews.includes("viewer")
+          ? "viewer"
+          : enabledViews[0] || "viewer";
     return {
         ...toViewDefineEntries(enabledViews),
         __RS_DEFAULT_VIEW__: JSON.stringify(defaultView),
     };
 };
 
+const isPwaPlugin = (plugin) => {
+    const name = plugin?.name;
+    return typeof name === "string" && (name === "vite-plugin-pwa" || name.startsWith("vite-plugin-pwa:"));
+};
+const isStaticCopyPlugin = (plugin) => {
+    const name = plugin?.name;
+    return typeof name === "string" && name.startsWith("vite-plugin-static-copy:");
+};
+const isMcpPlugin = (plugin) => {
+    const name = plugin?.name;
+    return typeof name === "string" && name.toLowerCase().includes("mcp");
+};
+
 /**
- * VDS host SPA for md.u2re.space and LAN `/markdown/` — real index.html + base "./"
- * (endpoint lib build stays the default `build:pwa` path).
+ * Shared SPA builder for Fastify host apps (index.html + base "./").
+ * Endpoint lib build stays the default `build:pwa` path.
  */
-const createMarkdownSpaConfig = async (mode) => {
+const createHostSpaConfig = async ({ mode, outDir, platformRoot, cacheDir, enabledViews }) => {
     const { viteStaticCopy } = await import("vite-plugin-static-copy");
     const { VitePWA } = await import("vite-plugin-pwa");
-    const outDir = resolve(__dirname, "./build/cw-markdown");
-    const platformRoot = resolve(__dirname, "./src/frontend/web/cw-markdown");
-
-    const isPwaPlugin = (plugin) => {
-        const name = plugin?.name;
-        return typeof name === "string" && (name === "vite-plugin-pwa" || name.startsWith("vite-plugin-pwa:"));
-    };
-    const isStaticCopyPlugin = (plugin) => {
-        const name = plugin?.name;
-        return typeof name === "string" && name.startsWith("vite-plugin-static-copy:");
-    };
-    const isMcpPlugin = (plugin) => {
-        const name = plugin?.name;
-        return typeof name === "string" && name.toLowerCase().includes("mcp");
-    };
 
     const basePlugins =
         (baseConfig?.plugins || [])
@@ -131,14 +143,11 @@ const createMarkdownSpaConfig = async (mode) => {
         // WHY: root at HTML dir so emitted file is `index.html` (not nested src/.../index.html).
         root: platformRoot,
         base: "./",
-        // Keep CrossWord cache + public resolve from the app package.
-        cacheDir: resolve(__dirname, "node_modules/.vite-cw-markdown"),
+        cacheDir,
         define: {
             ...(baseConfig?.define ?? {}),
             ...createViewDefine(mode),
-            "import.meta.env.VITE_ENABLED_VIEWS": JSON.stringify(
-                (DEFAULT_VIEWS_BY_MODE.markdown || []).join(",")
-            ),
+            "import.meta.env.VITE_ENABLED_VIEWS": JSON.stringify(enabledViews.join(",")),
         },
         plugins: [
             ...basePlugins,
@@ -150,7 +159,6 @@ const createMarkdownSpaConfig = async (mode) => {
                 ],
             }),
             VitePWA({
-                // Absolute sw source — Vite root is nested under frontend/web/cw-markdown.
                 srcDir: resolve(__dirname, "./src/pwa"),
                 filename: "sw.ts",
                 outDir,
@@ -206,6 +214,26 @@ const createMarkdownSpaConfig = async (mode) => {
     };
 };
 
+/** VDS host SPA for md.u2re.space and LAN `/markdown/`. */
+const createMarkdownSpaConfig = async (mode) =>
+    createHostSpaConfig({
+        mode,
+        outDir: resolve(__dirname, "./build/cw-markdown"),
+        platformRoot: resolve(__dirname, "./src/frontend/web/cw-markdown"),
+        cacheDir: resolve(__dirname, "node_modules/.vite-cw-markdown"),
+        enabledViews: DEFAULT_VIEWS_BY_MODE.markdown,
+    });
+
+/** VDS host SPA for u2re.space main (replaces runtime/main promo hub). */
+const createVdsMainSpaConfig = async (mode) =>
+    createHostSpaConfig({
+        mode,
+        outDir: resolve(__dirname, "./build/vds-main"),
+        platformRoot: resolve(__dirname, "./src/frontend/web/vds-main"),
+        cacheDir: resolve(__dirname, "node_modules/.vite-vds-main"),
+        enabledViews: DEFAULT_VIEWS_BY_MODE["vds-main"],
+    });
+
 export default async ({ mode } = {}) => {
     // WHY: CRX builds moved exclusively to apps/CWSP-crx — refuse leftover --mode crx.
     if (mode === "crx") {
@@ -215,6 +243,9 @@ export default async ({ mode } = {}) => {
     }
     if (mode === "markdown" || mode === "cw-markdown") {
         return createMarkdownSpaConfig(mode);
+    }
+    if (mode === "vds-main" || mode === "shell") {
+        return createVdsMainSpaConfig(mode);
     }
 
     const config = {
