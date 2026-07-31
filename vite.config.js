@@ -1,8 +1,8 @@
 /*
  * Filename: vite.config.js
  * FullPath: apps/CWSP-shell/vite.config.js
- * Change date and time: 07.36.00_31.07.2026
- * Reason for changes: Add vds-main SPA mode for u2re.space Fastify apps/main.
+ * Change date and time: 14.28.00_31.07.2026
+ * Reason for changes: Fix vds-main PWA icon nest (static-copy dest = outDir).
  */
 
 import { resolve } from "node:path";
@@ -151,11 +151,17 @@ const createHostSpaConfig = async ({ mode, outDir, platformRoot, cacheDir, enabl
         },
         plugins: [
             ...basePlugins,
+            /*
+             * WHY: Vite `root` is nested (`src/frontend/web/vds-main`). Static-copy resolves
+             * src outside root as `../../../pwa/icons/…`, then strips leading `../` and joins
+             * that onto `dest` → `pwa/icons/pwa/icons/*` (manifest icons 404 → blank PWA icon).
+             * INVARIANT: `dest` must be `outDir` so dirClean `pwa/icons` lands at outDir/pwa/icons.
+             */
             viteStaticCopy({
                 targets: [
-                    { src: resolve(__dirname, "./src/pwa/manifest.json"), dest: "pwa" },
-                    { src: resolve(__dirname, "./src/pwa/icons/*"), dest: "pwa/icons" },
-                    { src: resolve(__dirname, "./src/pwa/screenshots/*"), dest: "pwa/screenshots" },
+                    { src: resolve(__dirname, "./src/pwa/manifest.json"), dest: outDir },
+                    { src: resolve(__dirname, "./src/pwa/icons/*"), dest: outDir },
+                    { src: resolve(__dirname, "./src/pwa/screenshots/*"), dest: outDir },
                 ],
             }),
             VitePWA({
