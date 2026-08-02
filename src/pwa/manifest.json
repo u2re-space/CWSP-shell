@@ -10,8 +10,8 @@
         "fullscreen",
         "standalone"
     ],
-    "background_color": "#cbb8a4",
-    "theme_color": "#cbb8a4",
+    "background_color": "#000000",
+    "theme_color": "#000000",
     "categories": [
         "utilities",
         "productivity",
