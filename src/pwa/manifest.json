@@ -4,7 +4,7 @@
     "description": "AI-and-control-toolset",
     "start_url": "../",
     "scope": "../",
-    "display": "standalone",
+    "display": "fullscreen",
     "display_override": [
         "window-controls-overlay",
         "fullscreen",
@@ -221,7 +221,7 @@
     "launch_handler": {
         "client_mode": "navigate-new"
     },
-    "orientation": "natural",
+    "orientation": "any",
     "edge_side": "left",
     "edge_side_delegate": {
         "url": "../",
