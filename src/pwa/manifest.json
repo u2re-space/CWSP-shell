@@ -10,8 +10,8 @@
         "fullscreen",
         "standalone"
     ],
-    "background_color": "#1f2225",
-    "theme_color": "#1f2225",
+    "background_color": "#cbb8a4",
+    "theme_color": "#cbb8a4",
     "categories": [
         "utilities",
         "productivity",
@@ -219,7 +219,7 @@
     ],
     "handle_links": "preferred",
     "launch_handler": {
-        "client_mode": "focus-existing"
+        "client_mode": "navigate-new"
     },
     "orientation": "natural",
     "edge_side": "left",
