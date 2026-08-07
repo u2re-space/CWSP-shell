@@ -41,7 +41,7 @@ import {
     viewBroadcastChannelName
 } from 'com/config/Names';
 import { summarizeForLog } from 'com/core/LogSanitizer';
-import * as FestCore from "fest/core";
+import * as FestCore from "@fest-lib/core";
 
 // ============================================================================
 // SERVICE WORKER CONTENT ASSOCIATION SYSTEM

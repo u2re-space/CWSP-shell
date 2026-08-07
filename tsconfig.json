@@ -67,40 +67,40 @@
             "shells/window/environment": [
                 "./src/frontend/ai-slop/window/environment.ts"
             ],
-            "fest/core": [
+            "@fest-lib/core": [
                 "../../modules/projects/core.ts/src/index.ts"
             ],
-            "fest/dom": [
+            "@fest-lib/dom": [
                 "../../modules/projects/dom.ts/src/index.ts"
             ],
-            "fest/fl-ui": [
+            "@fest-lib/fl-ui": [
                 "../../modules/projects/fl.ui/src/index.ts"
             ],
-            "fest/lure": [
+            "@fest-lib/lure": [
                 "../../modules/projects/lur.e/src/index.ts"
             ],
-            "fest/object": [
+            "@fest-lib/object": [
                 "../../modules/projects/object.ts/src/index.ts"
             ],
-            "fest/object/*": [
+            "@fest-lib/object/*": [
                 "../../modules/projects/object.ts/src/*"
             ],
-            "fest/uniform": [
+            "@fest-lib/uniform": [
                 "../../modules/projects/uniform.ts/src/index.ts"
             ],
-            "fest/theme": [
+            "@fest-lib/theme": [
                 "../../modules/projects/lur.e/src/index.ts"
             ],
-            "fest/icon": [
+            "@fest-lib/icon": [
                 "../../modules/projects/icon.ts/src/index.ts"
             ],
-            "fest/image": [
+            "@fest-lib/image": [
                 "../../modules/projects/image.ts/src/index.ts"
             ],
-            "fest/veela/*": [
+            "@fest-lib/veela/*": [
                 "../../modules/projects/veela.css/src/*"
             ],
-            "fest/polyfill/*": [
+            "@fest-lib/polyfill/*": [
                 "./shared/polyfill/*"
             ],
             "com/config/*": [
@@ -280,7 +280,7 @@
             "markdown-view/viewer": [
                 "../../modules/views/markdown-view/src/needs-to-API.ts"
             ],
-            "fest/veela/runtime": [
+            "@fest-lib/veela/runtime": [
                 "../../modules/projects/subsystem/src/boot/veela-variant-runtime.ts"
             ],
             "views/registry": [

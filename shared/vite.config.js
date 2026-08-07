@@ -468,7 +468,7 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
         alias: [
             { find: "@phosphor-icons/core", replacement: phosphorCoreRoot },
             /* Dev server: ensure this id always resolves (tsconfig path is relative to app root; some setups mis-resolve). */
-            { find: "fest/veela/runtime", replacement: veelaVariantRuntimeTs },
+            { find: "@fest-lib/veela/runtime", replacement: veelaVariantRuntimeTs },
             /* Rolldown: bare tsconfig alias loses `?inline` imports on this key (viewer-view Markdown typography). */
             { find: /^markdown-view-typography(.*)$/, replacement: `${markdownTypographyScss}$1` },
             ...importFromTSConfig(tsconfig, __dirname),
@@ -825,10 +825,10 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
         modulePreload: {
             polyfill: true,
             include: [
-                "fest/dom",
-                "fest/lure",
-                "fest/object",
-                "fest/uniform",
+                "@fest-lib/dom",
+                "@fest-lib/lure",
+                "@fest-lib/object",
+                "@fest-lib/uniform",
             ]
         },
         rollupOptions,
