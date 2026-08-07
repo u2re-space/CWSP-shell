@@ -9,7 +9,7 @@ import type { AppSettings, CustomInstruction } from 'com/config/SettingsTypes';
 import { DEFAULT_SETTINGS } from 'com/config/SettingsTypes';
 import { executionCore } from 'com/service/misc/ExecutionCore';
 import type { ActionContext, ActionInput } from 'com/service/misc/ActionHistory';
-import { normalizeDataAsset, parseDataUrl, isBase64Like } from 'fest/lure';
+import { normalizeDataAsset, parseDataUrl, isBase64Like } from '@fest-lib/lure';
 
 // ============================================================================
 // TYPES
