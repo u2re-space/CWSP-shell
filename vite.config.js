@@ -1,8 +1,8 @@
 /*
  * Filename: vite.config.js
  * FullPath: apps/CWSP-shell/vite.config.js
- * Change date and time: 14.28.00_31.07.2026
- * Reason for changes: Fix vds-main PWA icon nest (static-copy dest = outDir).
+ * Change date and time: 12.00.00_08.08.2026
+ * Reason for changes: Copy default wallpaper.jpg/stock.jpg into host SPA outDir/assets.
  */
 
 import { resolve } from "node:path";
@@ -162,6 +162,9 @@ const createHostSpaConfig = async ({ mode, outDir, platformRoot, cacheDir, enabl
                     { src: resolve(__dirname, "./src/pwa/manifest.json"), dest: outDir },
                     { src: resolve(__dirname, "./src/pwa/icons/*"), dest: outDir },
                     { src: resolve(__dirname, "./src/pwa/screenshots/*"), dest: outDir },
+                    // WHY: default wallpaper URL `/assets/wallpaper.jpg` (not under nested Vite root).
+                    { src: resolve(__dirname, "./assets/wallpaper.jpg"), dest: resolve(outDir, "assets") },
+                    { src: resolve(__dirname, "./assets/stock.jpg"), dest: resolve(outDir, "assets") },
                 ],
             }),
             VitePWA({
@@ -176,7 +179,7 @@ const createHostSpaConfig = async ({ mode, outDir, platformRoot, cacheDir, enabl
                     rollupFormat: "iife",
                     injectionPoint: "self.__WB_MANIFEST",
                     maximumFileSizeToCacheInBytes: 1024 * 1024 * 16,
-                    globPatterns: ["**/*.{js,css,html,png,svg,json}"],
+                    globPatterns: ["**/*.{js,css,html,png,svg,json,jpg,jpeg,webp}"],
                     globIgnores: ["**/node_modules/**/*", "**/*.map", "**/stats.html", "**/report.html"],
                 },
                 manifest: false,

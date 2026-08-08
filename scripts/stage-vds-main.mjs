@@ -2,8 +2,8 @@
 /*
  * Filename: stage-vds-main.mjs
  * FullPath: apps/CWSP-shell/scripts/stage-vds-main.mjs
- * Change date and time: 14.25.00_31.07.2026
- * Reason for changes: Flatten nested pwa/icons|screenshots|manifest after viteStaticCopy + favicon.
+ * Change date and time: 12.00.00_08.08.2026
+ * Reason for changes: Stage default wallpaper.jpg/stock.jpg (Vite host SPA skips app assets/).
  */
 
 import fs from "node:fs";
@@ -135,6 +135,27 @@ if (fs.existsSync(faviconSrc)) {
 if (fs.existsSync(path.join(dest, "pwa", "icons", "icon.svg"))) {
     fs.cpSync(path.join(dest, "pwa", "icons", "icon.svg"), path.join(dest, "favicon.svg"));
 }
+
+/**
+ * WHY: default wallpaper URL is `/assets/wallpaper.jpg` (Canvas-2 / SpeedDial).
+ * Host SPA Vite `root` is nested under `src/frontend/web/...`, so app `assets/`
+ * is not Vite `publicDir` and never lands in the outDir without an explicit copy.
+ * INVARIANT: staged Fastify apps must serve wallpaper.jpg (and stock.jpg) at /assets/.
+ */
+function stageDefaultWallpapers(appRoot, stageDest, label) {
+    const assetsDest = path.join(stageDest, "assets");
+    fs.mkdirSync(assetsDest, { recursive: true });
+    let copied = 0;
+    for (const name of ["wallpaper.jpg", "stock.jpg"]) {
+        const from = path.join(appRoot, "assets", name);
+        if (!fs.existsSync(from)) continue;
+        fs.cpSync(from, path.join(assetsDest, name));
+        copied++;
+    }
+    if (copied) console.log(`[${label}] staged ${copied} wallpaper asset(s) → assets/`);
+    else console.warn(`[${label}] WARNING: no wallpaper.jpg/stock.jpg under ${path.join(appRoot, "assets")}`);
+}
+stageDefaultWallpapers(root, dest, "stage-vds-main");
 
 fs.writeFileSync(
     path.join(dest, ".sync-meta.json"),
