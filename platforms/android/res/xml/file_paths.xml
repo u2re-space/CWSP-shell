@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Filename: file_paths.xml
+  FullPath: apps/CWSP-reborn/app/android/res/xml/file_paths.xml
+  Change date and time: 18.00.00_21.07.2026
+  Reason for changes: cache-path for gateway APK sideload (app:update:install).
+    files/ paths for CWSP staging README FileProvider share (Cap settings).
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-path name="my_images" path="." />
+    <cache-path name="my_cache_images" path="." />
+    <cache-path name="cwsp_apk" path="cwsp/apk/" />
+    <files-path name="cwsp_assets" path="cwsp/clipboard-assets/" />
+    <files-path name="cwsp_history_assets" path="cwsp/history-assets/" />
+    <files-path name="cwsp_files" path="files/" />
+    <cache-path name="cwsp_files_cache" path="files/" />
+    <external-files-path name="cwsp_files_external" path="files/" />
+</paths>

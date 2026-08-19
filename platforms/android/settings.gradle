@@ -1,0 +1,32 @@
+/*
+ * Filename: settings.gradle
+ * FullPath: apps/CWSP-reborn/app/android/settings.gradle
+ * Change date and time: 18.15.00_10.07.2026
+ * Reason for changes: Wire Capacitor Android + empty Cordova plugins module into the single-module app.
+ */
+
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'cwsp-shell-launcher-android'
+
+include ':capacitor-cordova-android-plugins'
+project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
+
+apply from: 'capacitor.settings.gradle'
+
+// NOTE: single-module application — the root project itself applies
+// com.android.application (see build.gradle). No `:app` subproject.

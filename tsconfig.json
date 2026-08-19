@@ -124,6 +124,12 @@
             "com/template/*": [
                 "../../modules/projects/subsystem/src/service/template/*"
             ],
+            "com/routing/native/launcher-bridge": [
+                "./src/routing/native/launcher-bridge.ts"
+            ],
+            "com/routing/native/launcher-home-lifecycle": [
+                "./src/routing/native/launcher-home-lifecycle.ts"
+            ],
             "com/routing/*": [
                 "./src/shared/routing/*"
             ],

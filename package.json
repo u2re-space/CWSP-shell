@@ -27,7 +27,14 @@
         "test:dev": "npm run dev",
         "test:test": "echo 'No tests configured for cwsp-shell' && exit 0",
         "test:explorer": "npx --yes tsx --test ./src/frontend/views/explorer/inject.test.ts",
-        "sync:cw-markdown": "node ./scripts/stage-cw-markdown.mjs"
+        "sync:cw-markdown": "node ./scripts/stage-cw-markdown.mjs",
+        "build:capacitor:web": "rm -rf ./build/capacitor/web && node ./scripts/run-vite.mjs build --config vite.config.js --mode capacitor-launcher",
+        "build:capacitor": "node ./scripts/build-capacitor.mjs",
+        "build:capacitor:launcher": "node ./scripts/build-capacitor.mjs --no-bump",
+        "build:capacitor:apk": "node ./scripts/build-capacitor.mjs",
+        "build:capacitor:apk:release": "node ./scripts/build-capacitor.mjs --release",
+        "bump:capacitor:version": "node ./scripts/bump-capacitor-version.mjs",
+        "sync:capacitor:android": "node ./scripts/sync-capacitor-android.mjs"
     },
     "browserslist": [
         "last 1 chrome version",
@@ -35,6 +42,7 @@
     ],
     "devDependencies": {
         "@cap-js-community/websocket": "^1.10.0",
+        "@capacitor/android": "^8.5.0",
         "@capacitor/clipboard": "^8.0.1",
         "@capacitor/core": "^8.3.0",
         "@jsquash/jpeg": ">=1.6.0",
@@ -85,5 +93,6 @@
         "vite-plugin-singlefile": ">=2.1.0",
         "vite-plugin-static-copy": ">=3.1.1",
         "vite-tsconfig-paths": ">=5.1.4"
-    }
+    },
+    "version": "0.0.6"
 }

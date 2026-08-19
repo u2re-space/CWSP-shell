@@ -1,0 +1,40 @@
+/*
+ * Filename: build.gradle
+ * FullPath: /home/u2re-dev/U2RE.space/apps/CWSP-reborn/app/android/main/build.gradle
+ * Change date and time: 16.36.00_10.07.2026
+ * Reason for changes: Pass-II Android application module for Capacitor web assets.
+ */
+
+apply plugin: "com.android.application"
+
+android {
+    namespace "space.u2re.cwsp"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "space.u2re.cwsp"
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "0.0.1"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            // WHY: Java backend lives under src/backend/java/android via app/android/backend symlink.
+            java.srcDirs += ["../backend"]
+            manifest.srcFile "AndroidManifest.xml"
+            // Capacitor sync will own assets/; until then point operators at build/capacitor.
+        }
+    }
+}
+
+dependencies {
+    implementation "androidx.appcompat:appcompat:1.7.0"
+    implementation "androidx.webkit:webkit:1.12.1"
+}

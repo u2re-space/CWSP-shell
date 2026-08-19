@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CWSP</string>
+    <string name="title_activity_main">CWSP</string>
+    <string name="package_name">space.u2re.cwsp</string>
+    <string name="custom_url_scheme">space.u2re.cwsp</string>
+</resources>

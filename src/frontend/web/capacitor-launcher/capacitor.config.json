@@ -1,0 +1,12 @@
+{
+    "appId": "space.u2re.cwsp.launcher",
+    "appName": "CWSP Launcher",
+    "webDir": "../../../build/capacitor/web",
+    "android": {
+        "path": "platforms/android"
+    },
+    "server": {
+        "androidScheme": "https",
+        "cleartext": false
+    }
+}

@@ -1,0 +1,23 @@
+/*
+ * Filename: capacitor.config.ts
+ * FullPath: apps/CWSP-shell/src/frontend/web/capacitor-launcher/capacitor.config.ts
+ * Change date and time: 18.35.00_19.08.2026
+ * Reason for changes: CWSP Launcher Capacitor — webDir + platforms/android path.
+ */
+
+import type { CapacitorConfig } from "@capacitor/cli";
+
+const config: CapacitorConfig = {
+    appId: "space.u2re.cwsp.launcher",
+    appName: "CWSP Launcher",
+    webDir: "../../../build/capacitor/web",
+    android: {
+        path: "platforms/android"
+    },
+    server: {
+        androidScheme: process.env.CWSP_ANDROID_SCHEME || "https",
+        cleartext: process.env.CWSP_ALLOW_CLEARTEXT === "1"
+    }
+};
+
+export default config;

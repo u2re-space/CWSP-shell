@@ -1,0 +1,26 @@
+/*
+ * Filename: capacitor.settings.gradle
+ * FullPath: apps/CWSP-reborn/app/android/capacitor.settings.gradle
+ * Change date and time: 18.15.00_10.07.2026
+ * Reason for changes: Include @capacitor/android from workspace/app node_modules.
+ *
+ * NOTE: Prefer apps/CWSP-reborn/node_modules, fall back to monorepo root.
+ */
+
+def cwspRoot = new File(settingsDir, '../..').canonicalFile
+def workspaceRoot = new File(cwspRoot, '../..').canonicalFile
+def capCandidates = [
+    new File(cwspRoot, 'node_modules/@capacitor/android/capacitor'),
+    new File(workspaceRoot, 'node_modules/@capacitor/android/capacitor')
+]
+def capAndroid = capCandidates.find { it.exists() }
+if (capAndroid == null) {
+    throw new GradleException(
+        "Unable to find node_modules/@capacitor/android/capacitor under ${cwspRoot} or ${workspaceRoot}. " +
+        "Install @capacitor/android first."
+    )
+}
+
+include ':capacitor-android'
+project(':capacitor-android').projectDir = capAndroid
+println "[cwsp] capacitor-android → ${capAndroid}"

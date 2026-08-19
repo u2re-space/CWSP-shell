@@ -223,6 +223,132 @@ const createHostSpaConfig = async ({ mode, outDir, platformRoot, cacheDir, enabl
     };
 };
 
+/** CWSP Launcher Capacitor WebView bundle (system HOME SKU). */
+const LAUNCHER_ENABLED_VIEWS = ["minimal", "home", "explorer", "settings", "viewer"];
+
+const createCapacitorLauncherConfig = async (mode) => {
+    const platformRoot = resolve(__dirname, "./src/frontend/web/capacitor-launcher");
+    const outDir = resolve(__dirname, "./build/capacitor/web");
+    const workspaceRoot = resolve(__dirname, "../..");
+    const flUiRoot = resolve(workspaceRoot, "modules/projects/fl.ui/src/ui");
+    const homeViewRoot = resolve(workspaceRoot, "modules/views/home-view/src");
+    const launcherResolveAliases = [
+        {
+            find: resolve(__dirname, "src/routing/native/launcher-bridge.ts"),
+            replacement: resolve(__dirname, "src/routing/native/launcher-bridge.ts")
+        },
+        {
+            find: resolve(__dirname, "src/routing/native/launcher-home-lifecycle.ts"),
+            replacement: resolve(__dirname, "src/routing/native/launcher-home-lifecycle.ts")
+        },
+        {
+            find: "com/routing/native/launcher-bridge",
+            replacement: resolve(__dirname, "src/routing/native/launcher-bridge.ts")
+        },
+        {
+            find: "com/routing/native/launcher-home-lifecycle",
+            replacement: resolve(__dirname, "src/routing/native/launcher-home-lifecycle.ts")
+        },
+        {
+            find: resolve(__dirname, "src/frontend/shells/environment/components/app-menu/AppMenu.ts"),
+            replacement: resolve(flUiRoot, "navigation/app-menu/AppMenu.ts")
+        },
+        {
+            find: resolve(homeViewRoot, "navigation/app-menu/AppMenu"),
+            replacement: resolve(flUiRoot, "navigation/app-menu/AppMenu.ts")
+        },
+        {
+            find: resolve(homeViewRoot, "navigation/app-menu/AppMenu.ts"),
+            replacement: resolve(flUiRoot, "navigation/app-menu/AppMenu.ts")
+        },
+        {
+            find: /^fl-design\/(.*)$/,
+            replacement: `${resolve(workspaceRoot, "modules/projects/fl.ui/src/styles")}/$1`
+        },
+        { find: "fl-ui", replacement: flUiRoot },
+        { find: "@fl-ui", replacement: flUiRoot },
+        {
+            find: "@fest-lib/fl-ui",
+            replacement: resolve(workspaceRoot, "modules/projects/fl.ui/src/index.ts")
+        }
+    ];
+    const basePlugins =
+        (baseConfig?.plugins || [])
+            .flat?.(Infinity)
+            ?.filter?.(
+                (plugin) =>
+                    plugin?.name !== "vite:singlefile" &&
+                    !isPwaPlugin(plugin) &&
+                    !isStaticCopyPlugin(plugin) &&
+                    !isMcpPlugin(plugin)
+            ) ?? [];
+    const baseRollup = baseConfig?.build?.rollupOptions ?? {};
+    const baseOutput = Array.isArray(baseRollup.output) ? baseRollup.output[0] : (baseRollup.output ?? {});
+
+    return {
+        ...baseConfig,
+        root: platformRoot,
+        base: "./",
+        cacheDir: resolve(__dirname, "node_modules/.vite-capacitor-launcher"),
+        define: {
+            ...(baseConfig?.define ?? {}),
+            __RS_SHELL_ROLE__: JSON.stringify("launcher"),
+            "import.meta.env.RS_SHELL_ROLE": JSON.stringify("launcher"),
+            __RS_DEFAULT_VIEW__: JSON.stringify("home"),
+            __RS_VIEW_HOME__: "true",
+            __RS_VIEW_EXPLORER__: "true",
+            __RS_VIEW_SETTINGS__: "true",
+            __RS_VIEW_VIEWER__: "true",
+            __RS_VIEW_NETWORK__: "false",
+            __RS_VIEW_AIRPAD__: "false",
+            __RS_VIEW_EDITOR__: "false",
+            __RS_VIEW_WORKCENTER__: "false",
+            __RS_VIEW_HISTORY__: "false",
+            __RS_VIEW_PRINT__: "false",
+            "import.meta.env.VITE_ENABLED_VIEWS": JSON.stringify(LAUNCHER_ENABLED_VIEWS.join(",")),
+        },
+        plugins: basePlugins,
+        resolve: {
+            ...(baseConfig?.resolve ?? {}),
+            alias: [
+                ...(Array.isArray(baseConfig?.resolve?.alias) ? baseConfig.resolve.alias : []),
+                ...launcherResolveAliases
+            ]
+        },
+        build: {
+            ...(baseConfig?.build ?? {}),
+            lib: false,
+            outDir,
+            emptyOutDir: true,
+            minify: false,
+            cssMinify: false,
+            modulePreload: true,
+            rollupOptions: {
+                ...baseRollup,
+                input: resolve(platformRoot, "index.html"),
+                output: {
+                    ...baseOutput,
+                    dir: outDir,
+                    entryFileNames: "assets/[name]-[hash].js",
+                    chunkFileNames: distChunkFileNames,
+                    assetFileNames: distAssetFileNames(NAME),
+                },
+            },
+            rolldownOptions: {
+                ...(baseConfig?.build?.rolldownOptions ?? {}),
+                input: resolve(platformRoot, "index.html"),
+                output: {
+                    ...baseOutput,
+                    dir: outDir,
+                    entryFileNames: "assets/[name]-[hash].js",
+                    chunkFileNames: distChunkFileNames,
+                    assetFileNames: distAssetFileNames(NAME),
+                },
+            },
+        },
+    };
+};
+
 /** VDS host SPA for md.u2re.space and LAN `/markdown/`. */
 const createMarkdownSpaConfig = async (mode) =>
     createHostSpaConfig({
@@ -255,6 +381,9 @@ export default async ({ mode } = {}) => {
     }
     if (mode === "vds-main" || mode === "shell") {
         return createVdsMainSpaConfig(mode);
+    }
+    if (mode === "capacitor-launcher") {
+        return createCapacitorLauncherConfig(mode);
     }
 
     const config = {

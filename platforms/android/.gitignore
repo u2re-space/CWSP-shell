@@ -1,1 +1,24 @@
+# Gradle / Android Studio
+.gradle/
+build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Capacitor sync output (Vite web bundle copied by scripts/sync-capacitor-android.mjs)
+src/main/assets/
+
+# Generated Cordova plugin stubs (Capacitor CLI may rewrite)
+capacitor-cordova-android-plugins/build/
+capacitor-cordova-android-plugins/src/main/java/*
+!capacitor-cordova-android-plugins/src/main/java/.gitkeep
+capacitor-cordova-android-plugins/src/main/res/*
+!capacitor-cordova-android-plugins/src/main/res/.gitkeep
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
 !.gitignore

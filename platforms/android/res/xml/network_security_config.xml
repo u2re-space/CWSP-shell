@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Filename: network_security_config.xml
+  FullPath: apps/CWSP-reborn/app/android/res/xml/network_security_config.xml
+  Change date and time: 07.55.00_22.07.2026
+  Reason for changes: Trust bundled CWSP rootCA for LAN HTTPS/WSS without manual install.
+  2026-07-22x: Cap↔Cap P2P uses cleartext http://<phone>:8434/service/files-blob.
+    Domain allowlist of fixed fleet IPs blocked probes when DHCP ≠ mapped L-196/.196
+    (CleartextNotPermitted — Cap could not even ask if peer Control was up).
+    Neu→Cap still worked (Node ignores Android NSC). Permit cleartext for private
+    LAN bases; keep CWSP CA + system/user trust for HTTPS gateways.
+-->
+<network-security-config>
+    <!-- WHY: Cap Control blob P2P is http://192.168.x.x:8434 — NSC has no CIDR. -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+            <certificates src="@raw/cwsp_root_ca" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="false">192.168.0.110</domain>
+        <domain includeSubdomains="false">192.168.0.200</domain>
+        <domain includeSubdomains="false">192.168.0.196</domain>
+        <domain includeSubdomains="false">192.168.0.208</domain>
+        <domain includeSubdomains="false">192.168.0.210</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+            <certificates src="@raw/cwsp_root_ca" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>
