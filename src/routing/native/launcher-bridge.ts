@@ -63,3 +63,15 @@ export async function launcherIcon(cacheKey: string, size = 64): Promise<string>
     const mime = echo?.mime ?? (r as { mime?: string }).mime ?? "image/png";
     return `data:${mime};base64,${base64}`;
 }
+
+/** PNG (or native mime) as blob: object URL — preferred for WebView `<img src>`. */
+export async function launcherIconBlobUrl(cacheKey: string, size = 64): Promise<string> {
+    const dataUrl = await launcherIcon(cacheKey, size);
+    if (!dataUrl) return "";
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const type = blob.type && blob.type.startsWith("image/") ? blob.type : "image/png";
+    const normalized =
+        blob.type === type ? blob : new Blob([await blob.arrayBuffer()], { type });
+    return URL.createObjectURL(normalized);
+}

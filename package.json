@@ -33,6 +33,8 @@
         "build:capacitor:launcher": "node ./scripts/build-capacitor.mjs --no-bump",
         "build:capacitor:apk": "node ./scripts/build-capacitor.mjs",
         "build:capacitor:apk:release": "node ./scripts/build-capacitor.mjs --release",
+        "build:capacitor:install": "npm run build:capacitor:launcher && node ./scripts/install-capacitor-apk.mjs",
+        "install:capacitor:apk": "node ./scripts/install-capacitor-apk.mjs",
         "bump:capacitor:version": "node ./scripts/bump-capacitor-version.mjs",
         "sync:capacitor:android": "node ./scripts/sync-capacitor-android.mjs"
     },
@@ -94,5 +96,5 @@
         "vite-plugin-static-copy": ">=3.1.1",
         "vite-tsconfig-paths": ">=5.1.4"
     },
-    "version": "0.0.6"
+    "version": "0.0.17"
 }

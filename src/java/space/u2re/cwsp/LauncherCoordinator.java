@@ -18,6 +18,9 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.PorterDuff;
+import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Process;
@@ -107,12 +110,10 @@ public final class LauncherCoordinator {
         if (pkg.isEmpty()) {
             return fail("launcher:icon", "missing-package");
         }
-        int size = sizePx != null ? sizePx : 64;
+        int size = sizePx != null ? sizePx : 96;
         if (size < 16) size = 16;
-        if (size > 128) size = 128;
-        if (queryIsDefaultHome(ctx)) {
-            return appIconViaLauncherApps(ctx, pkg, size);
-        }
+        if (size > 192) size = 192;
+        /* WHY: PackageManager adaptive layers — no LauncherApps circular badge/mask. */
         return appIconViaPackageManager(ctx, pkg, size);
     }
 
@@ -338,8 +339,8 @@ public final class LauncherCoordinator {
         try {
             Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(bitmap);
-            drawable.setBounds(0, 0, size, size);
-            drawable.draw(canvas);
+            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+            drawIconDrawableUnmasked(drawable, canvas, size);
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, bos)) {
                 return fail("launcher:icon", "compress-failed");
@@ -359,6 +360,29 @@ public final class LauncherCoordinator {
             Log.w(TAG, "encodeIconDrawable failed pkg=" + pkg, e);
             return fail("launcher:icon", e.getMessage() != null ? e.getMessage() : "icon-failed");
         }
+    }
+
+    /**
+     * Draw adaptive foreground/background layers full-bleed (no OS circular mask).
+     * Do NOT call AdaptiveIconDrawable.draw() — it applies the system mask path.
+     */
+    private static void drawIconDrawableUnmasked(Drawable drawable, Canvas canvas, int size) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && drawable instanceof AdaptiveIconDrawable) {
+            AdaptiveIconDrawable adaptive = (AdaptiveIconDrawable) drawable;
+            Drawable background = adaptive.getBackground();
+            Drawable foreground = adaptive.getForeground();
+            if (background != null) {
+                background.setBounds(0, 0, size, size);
+                background.draw(canvas);
+            }
+            if (foreground != null) {
+                foreground.setBounds(0, 0, size, size);
+                foreground.draw(canvas);
+            }
+            return;
+        }
+        drawable.setBounds(0, 0, size, size);
+        drawable.draw(canvas);
     }
 
     private static boolean queryIsDefaultHome(Context ctx) {
