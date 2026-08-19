@@ -9,6 +9,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { loadPwaIdentity } from "./sync-capacitor-app-identity.mjs";
+
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_FROM = path.join(APP_ROOT, "platforms/android/build/outputs/apk");
 const PUBLISH_ROOT = path.join(APP_ROOT, "build/capacitor/apk");
@@ -50,7 +52,12 @@ function main() {
         for (const name of fs.readdirSync(typeDir)) {
             if (!name.endsWith(".apk")) continue;
             const src = path.join(typeDir, name);
-            const typedName = versionName ? `cwsp-launcher-${versionName}.apk` : `cwsp-launcher-${type.name}.apk`;
+            const apkStem =
+                loadPwaIdentity()
+                    .appName.toLowerCase()
+                    .replace(/[^a-z0-9]+/g, "-")
+                    .replace(/^-|-$/g, "") || "cw-i1";
+            const typedName = versionName ? `${apkStem}-${versionName}.apk` : `${apkStem}-${type.name}.apk`;
             const typedDest = path.join(PUBLISH_ROOT, type.name, typedName);
             const flatDest = path.join(PUBLISH_ROOT, typedName);
             copyFile(src, typedDest);

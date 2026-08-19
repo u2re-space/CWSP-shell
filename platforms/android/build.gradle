@@ -23,18 +23,26 @@ if (cwspVersionPropsFile.exists()) {
 def cwspVersionCode = (cwspVersionProps.getProperty('VERSION_CODE') ?: '1').toInteger()
 def cwspVersionName = cwspVersionProps.getProperty('VERSION_NAME') ?: '0.0.1'
 
+def cwspIdentityPropsFile = file("${rootProject.projectDir}/cwsp-app-identity.properties")
+def cwspIdentityProps = new Properties()
+def cwspApkStem = 'cw-i1'
+if (cwspIdentityPropsFile.exists()) {
+    cwspIdentityPropsFile.withInputStream { cwspIdentityProps.load(it) }
+    cwspApkStem = cwspIdentityProps.getProperty('APK_STEM', cwspApkStem)
+}
+
 android {
     namespace 'space.u2re.cwsp'
     compileSdk rootProject.ext.compileSdkVersion
 
     defaultConfig {
-        applicationId "space.u2re.cwsp.launcher"
+        applicationId "space.u2re.cw"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode cwspVersionCode
         versionName cwspVersionName
         manifestPlaceholders = [cwspAllowCleartext: 'false']
-        resValue "string", "app_name", "CWSP Launcher"
+        resValue "string", "app_name", "CW-i1"
         buildConfigField "boolean", "CWSP_LAUNCHER_SKU", "true"
         aaptOptions {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~:!*.gz:!*.br'
@@ -113,7 +121,7 @@ tasks.register('copyCwspApks') {
         outputsApk.eachDir { typeDir ->
             def buildType = typeDir.name
             typeDir.eachFileMatch(~/.*\.apk/) { apk ->
-                publishApk(apk, "cwsp-launcher-${cwspVersionName}.apk", buildType)
+                publishApk(apk, "${cwspApkStem}-${cwspVersionName}.apk", buildType)
             }
         }
     }

@@ -8,8 +8,8 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-    appId: "space.u2re.cwsp.launcher",
-    appName: "CWSP Launcher",
+    appId: "space.u2re.cw",
+    appName: "CW-i1",
     webDir: "../../../build/capacitor/web",
     android: {
         path: "platforms/android"

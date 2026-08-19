@@ -23,6 +23,12 @@ document.documentElement.dataset.cwspNativeShell = "capacitor";
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
 document.documentElement.dataset.cwspDefaultView = "home";
 
+void import("shells/environment/components/statusbar/capacitor-native-safe-area")
+    .then((m) => m.installCapacitorNativeSafeAreaInsets())
+    .catch(() => {
+        /* best-effort before shell mount */
+    });
+
 setLauncherBridgeForAppMenu({
     launcherIsDefault,
     launcherRequestDefault,
@@ -38,12 +44,12 @@ setLauncherBridgeForSpeedDial({
 
 function showBootFailure(error: unknown): void {
     const message = error instanceof Error ? error.stack || error.message : String(error);
-    console.error("[CWSP Launcher] boot failed", error);
+    console.error("[CW-i1] boot failed", error);
     const root = document.body;
     root.replaceChildren();
     root.style.cssText =
         "margin:0;padding:16px;font:14px/1.4 ui-monospace,monospace;background:#111;color:#f66;white-space:pre-wrap;";
-    root.textContent = `[CWSP Launcher] boot failed\n\n${message}`;
+    root.textContent = `[CW-i1] boot failed\n\n${message}`;
 }
 
 void import("com/routing/native/launcher-home-lifecycle")

@@ -5,6 +5,7 @@
  * Reason for changes: CWSP Launcher — sync web bundle into platforms/android assets.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,6 +72,15 @@ function sanitizeRuntimeConfig(raw) {
     return cfg;
 }
 
+function runNodeScript(scriptName) {
+    const scriptPath = path.join(APP_ROOT, "scripts", scriptName);
+    console.log(`[sync-capacitor-android] node ${scriptName}`);
+    const r = spawnSync(process.execPath, [scriptPath], { cwd: APP_ROOT, stdio: "inherit" });
+    if (r.status !== 0) {
+        throw new Error(`${scriptName} failed with status ${r.status}`);
+    }
+}
+
 function main() {
     if (!fs.existsSync(WEB_DIR)) {
         throw new Error(`missing web bundle: ${WEB_DIR} (run build:capacitor:web first)`);
@@ -78,6 +88,8 @@ function main() {
     rimraf(PUBLIC);
     fs.mkdirSync(ASSETS, { recursive: true });
     copyTree(WEB_DIR, PUBLIC);
+    runNodeScript("sync-capacitor-app-identity.mjs");
+    runNodeScript("sync-capacitor-android-icons.mjs");
     console.log(`[sync-capacitor-android] ${WEB_DIR} → ${PUBLIC}`);
 
     const configPath = CONFIG_CANDIDATES.find((p) => fs.existsSync(p));

@@ -15,6 +15,7 @@ import android.util.Log;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.core.splashscreen.SplashScreen;
+import androidx.core.view.WindowCompat;
 
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
@@ -31,6 +32,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CwsLauncherBridgePlugin.class);
         super.onCreate(savedInstanceState);
         try {
+            WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
             getWindow().setBackgroundDrawableResource(android.R.color.transparent);
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER);
         } catch (Exception e) {

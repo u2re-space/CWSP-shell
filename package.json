@@ -36,7 +36,9 @@
         "build:capacitor:install": "npm run build:capacitor:launcher && node ./scripts/install-capacitor-apk.mjs",
         "install:capacitor:apk": "node ./scripts/install-capacitor-apk.mjs",
         "bump:capacitor:version": "node ./scripts/bump-capacitor-version.mjs",
-        "sync:capacitor:android": "node ./scripts/sync-capacitor-android.mjs"
+        "sync:capacitor:android": "node ./scripts/sync-capacitor-android.mjs",
+        "sync:capacitor:identity": "node ./scripts/sync-capacitor-app-identity.mjs",
+        "sync:capacitor:icons": "node ./scripts/sync-capacitor-android-icons.mjs"
     },
     "browserslist": [
         "last 1 chrome version",

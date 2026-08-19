@@ -7,6 +7,8 @@
 
 package space.u2re.cwsp;
 
+import android.content.Context;
+
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -27,7 +29,19 @@ public class CwsLauncherBridgePlugin extends Plugin {
         info.put("native", true);
         info.put("platform", "android");
         info.put("sku", "launcher");
+        info.put("statusBarHeightCss", systemBarHeightCss(getContext(), "status_bar_height"));
+        info.put("navigationBarHeightCss", systemBarHeightCss(getContext(), "navigation_bar_height"));
         call.resolve(info);
+    }
+
+    private static double systemBarHeightCss(Context context, String dimenName) {
+        if (context == null) return 0;
+        int resourceId = context.getResources().getIdentifier(dimenName, "dimen", "android");
+        if (resourceId <= 0) return 0;
+        float px = context.getResources().getDimension(resourceId);
+        float density = context.getResources().getDisplayMetrics().density;
+        if (density <= 0) return px;
+        return px / density;
     }
 
     @PluginMethod

@@ -18,6 +18,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { bumpCapacitorVersion } from "./bump-capacitor-version.mjs";
+import { loadPwaIdentity } from "./sync-capacitor-app-identity.mjs";
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ANDROID_ROOT = path.join(APP_ROOT, "platforms/android");
@@ -101,7 +102,8 @@ function main() {
 
     const apkOut = path.join(APP_ROOT, "build/capacitor/apk");
     const versionName = bumped?.versionName;
-    const launcherApk = versionName ? `cwsp-launcher-${versionName}.apk` : null;
+    const apkStem = loadPwaIdentity().appName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "cw-i1";
+    const launcherApk = versionName ? `${apkStem}-${versionName}.apk` : null;
     const hasLauncherApk = launcherApk ? fs.existsSync(path.join(apkOut, launcherApk)) : false;
     if (!hasLauncherApk) {
         run(process.execPath, [path.join(APP_ROOT, "scripts/copy-capacitor-apk.mjs")]);
