@@ -103,9 +103,15 @@ public class MainActivity extends BridgeActivity {
                         value -> {
                             boolean consumed = value != null && value.contains("1");
                             if (consumed) return;
-                            setEnabled(false);
-                            getOnBackPressedDispatcher().onBackPressed();
-                            setEnabled(true);
+                            /*
+                             * WHY: Default back runs WebView.goBack() or finishes the activity —
+                             * on a HOME launcher that reads as a cold restart + blank wallpaper.
+                             */
+                            try {
+                                moveTaskToBack(true);
+                            } catch (Exception e) {
+                                Log.w(TAG, "moveTaskToBack fallback failed", e);
+                            }
                         });
             }
         });

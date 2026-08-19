@@ -6,6 +6,7 @@
  */
 
 import { bootEnvironment } from "boot/BootLoader";
+import { installLauncherHomeLifecycle } from "com/routing/native/launcher-home-lifecycle";
 import {
     launcherIcon,
     launcherIsDefault,
@@ -52,10 +53,6 @@ function showBootFailure(error: unknown): void {
     root.textContent = `[CW-i1] boot failed\n\n${message}`;
 }
 
-void import("com/routing/native/launcher-home-lifecycle")
-    .then((m) => m.installLauncherHomeLifecycle())
-    .catch(() => {
-        /* best-effort */
-    });
+installLauncherHomeLifecycle();
 
 void bootEnvironment(document.body, "home").catch(showBootFailure);

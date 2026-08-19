@@ -10,6 +10,8 @@ export type LauncherHomeLifecycleHooks = {
     closeAppMenu?: () => void;
     isAppMenuOpen?: () => boolean;
     focusSpeedDial?: () => void;
+    /** Modals, switcher, explorer menus — return true when back was handled. */
+    tryConsumeBack?: () => boolean;
 };
 
 const HOOKS_BOOT = "__CWSP_LAUNCHER_HOME_HOOKS_V1__";
@@ -66,7 +68,14 @@ export function isLauncherHomeVisible(): boolean {
     const windows = workspace.querySelectorAll("ui-window");
     for (const node of windows) {
         if (!(node instanceof HTMLElement)) continue;
-        if (node.hidden || node.hasAttribute("data-minimized")) continue;
+        if (
+            node.hidden ||
+            node.hasAttribute("hidden-window") ||
+            node.hasAttribute("minimized") ||
+            node.hasAttribute("data-minimized")
+        ) {
+            continue;
+        }
         const style = getComputedStyle(node);
         if (style.display === "none" || style.visibility === "hidden") continue;
         if (Number.parseFloat(style.opacity || "1") <= 0) continue;
@@ -84,12 +93,26 @@ export function handleLauncherHomePressed(): void {
 }
 
 export function handleLauncherBackPress(): boolean {
+    if (!isLauncherSku()) return false;
     const hooks = hookSlot().get();
+
     if (hooks?.isAppMenuOpen?.()) {
         hooks.closeAppMenu?.();
         return true;
     }
-    return isLauncherHomeVisible();
+
+    if (hooks?.tryConsumeBack?.()) {
+        return true;
+    }
+
+    if (!isLauncherHomeVisible()) {
+        /* Collapse open app — not the HOME intent (no focusSpeedDial). */
+        hooks?.navigateHome?.();
+        return true;
+    }
+
+    /* On desktop home — consume; do not fall through to WebView.goBack(). */
+    return true;
 }
 
 let installed = false;
