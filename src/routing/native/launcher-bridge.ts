@@ -13,8 +13,27 @@ export interface LauncherAppEntry {
     iconCacheKey: string;
 }
 
+export type LauncherIconVariantId = "default" | "monochrome" | "foreground";
+
+export type LauncherIconVariantInfo = {
+    id: LauncherIconVariantId | string;
+    label: string;
+    available: boolean;
+};
+
 type LauncherListEcho = { apps?: LauncherAppEntry[]; reason?: string };
-type LauncherIconEcho = { base64?: string; mime?: string; cacheKey?: string; reason?: string };
+type LauncherIconEcho = {
+    base64?: string;
+    mime?: string;
+    cacheKey?: string;
+    variant?: string;
+    reason?: string;
+};
+type LauncherIconVariantsEcho = {
+    packageName?: string;
+    variants?: LauncherIconVariantInfo[];
+    reason?: string;
+};
 
 export async function launcherIsDefault(): Promise<boolean> {
     const r = await invokeCwsPlatformIPC({ channel: "launcher:is-default" });
@@ -49,12 +68,17 @@ export async function launcherLaunch(pkg: string, component?: string): Promise<b
     return r.ok === true;
 }
 
-export async function launcherIcon(cacheKey: string, size = 64): Promise<string> {
+export async function launcherIcon(
+    cacheKey: string,
+    size = 64,
+    variant: LauncherIconVariantId | string = "default"
+): Promise<string> {
     const key = String(cacheKey || "").trim();
     if (!key) return "";
+    const v = String(variant || "default").trim() || "default";
     const r = await invokeCwsPlatformIPC({
         channel: "launcher:icon",
-        payload: { packageName: key, cacheKey: key, size }
+        payload: { packageName: key, cacheKey: key, size, variant: v }
     });
     if (!r.ok) return "";
     const echo = r.echo as LauncherIconEcho | undefined;
@@ -64,9 +88,27 @@ export async function launcherIcon(cacheKey: string, size = 64): Promise<string>
     return `data:${mime};base64,${base64}`;
 }
 
+/** Which adaptive / Material You variants PackageManager can supply for this package. */
+export async function launcherIconVariants(cacheKey: string): Promise<LauncherIconVariantInfo[]> {
+    const key = String(cacheKey || "").trim();
+    if (!key) return [];
+    const r = await invokeCwsPlatformIPC({
+        channel: "launcher:icon-variants",
+        payload: { packageName: key, cacheKey: key }
+    });
+    if (!r.ok) return [];
+    const echo = r.echo as LauncherIconVariantsEcho | undefined;
+    const variants = echo?.variants ?? (r as { variants?: LauncherIconVariantInfo[] }).variants;
+    return Array.isArray(variants) ? variants : [];
+}
+
 /** PNG (or native mime) as blob: object URL — preferred for WebView `<img src>`. */
-export async function launcherIconBlobUrl(cacheKey: string, size = 64): Promise<string> {
-    const dataUrl = await launcherIcon(cacheKey, size);
+export async function launcherIconBlobUrl(
+    cacheKey: string,
+    size = 64,
+    variant: LauncherIconVariantId | string = "default"
+): Promise<string> {
+    const dataUrl = await launcherIcon(cacheKey, size, variant);
     if (!dataUrl) return "";
     const res = await fetch(dataUrl);
     const blob = await res.blob();

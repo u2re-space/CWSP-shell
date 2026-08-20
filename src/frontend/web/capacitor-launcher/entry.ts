@@ -9,6 +9,7 @@ import { bootEnvironment } from "boot/BootLoader";
 import { installLauncherHomeLifecycle } from "com/routing/native/launcher-home-lifecycle";
 import {
     launcherIcon,
+    launcherIconVariants,
     launcherIsDefault,
     launcherLaunch,
     launcherList,
@@ -35,12 +36,15 @@ setLauncherBridgeForAppMenu({
     launcherRequestDefault,
     launcherList,
     launcherLaunch,
-    launcherIcon
+    launcherIcon,
+    launcherIconVariants
 });
 
 setLauncherBridgeForSpeedDial({
     launcherLaunch,
-    launcherIcon
+    launcherIcon,
+    launcherIconVariants,
+    launcherList
 });
 
 function showBootFailure(error: unknown): void {

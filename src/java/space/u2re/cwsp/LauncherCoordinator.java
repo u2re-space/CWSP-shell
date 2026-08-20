@@ -103,6 +103,13 @@ public final class LauncherCoordinator {
     }
 
     public static JSObject appIcon(Context ctx, String packageName, Integer sizePx) {
+        return appIcon(ctx, packageName, sizePx, "default");
+    }
+
+    /**
+     * @param variant {@code default} | {@code monochrome} (Material You, API 33+) | {@code foreground}
+     */
+    public static JSObject appIcon(Context ctx, String packageName, Integer sizePx, String variant) {
         if (ctx == null) {
             return fail("launcher:icon", "context-null");
         }
@@ -113,8 +120,68 @@ public final class LauncherCoordinator {
         int size = sizePx != null ? sizePx : 96;
         if (size < 16) size = 16;
         if (size > 192) size = 192;
+        String v = normalizeIconVariant(variant);
         /* WHY: PackageManager adaptive layers — no LauncherApps circular badge/mask. */
-        return appIconViaPackageManager(ctx, pkg, size);
+        return appIconViaPackageManager(ctx, pkg, size, v);
+    }
+
+    /** List which icon variants exist for a package (no bitmap payload). */
+    public static JSObject listIconVariants(Context ctx, String packageName) {
+        if (ctx == null) {
+            return fail("launcher:icon-variants", "context-null");
+        }
+        String pkg = packageName != null ? packageName.trim() : "";
+        if (pkg.isEmpty()) {
+            return fail("launcher:icon-variants", "missing-package");
+        }
+        try {
+            PackageManager pm = ctx.getPackageManager();
+            Drawable drawable = pm.getApplicationIcon(pkg);
+            JSArray variants = new JSArray();
+            putVariant(variants, "default", "Default", true);
+            boolean hasFg = false;
+            boolean hasMono = false;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && drawable instanceof AdaptiveIconDrawable) {
+                AdaptiveIconDrawable adaptive = (AdaptiveIconDrawable) drawable;
+                hasFg = adaptive.getForeground() != null;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    hasMono = adaptive.getMonochrome() != null;
+                }
+            }
+            putVariant(variants, "foreground", "Adaptive foreground", hasFg);
+            putVariant(variants, "monochrome", "Material You", hasMono);
+            JSObject echo = new JSObject();
+            echo.put("packageName", pkg);
+            echo.put("variants", variants);
+            JSObject r = base(true, "launcher:icon-variants");
+            r.put("echo", echo);
+            r.put("variants", variants);
+            return r;
+        } catch (Exception e) {
+            Log.w(TAG, "listIconVariants failed pkg=" + pkg, e);
+            return fail(
+                    "launcher:icon-variants",
+                    e.getMessage() != null ? e.getMessage() : "variants-failed");
+        }
+    }
+
+    private static void putVariant(JSArray variants, String id, String label, boolean available) {
+        JSObject entry = new JSObject();
+        entry.put("id", id);
+        entry.put("label", label);
+        entry.put("available", available);
+        variants.put(entry);
+    }
+
+    private static String normalizeIconVariant(String variant) {
+        String v = variant != null ? variant.trim().toLowerCase(Locale.ROOT) : "default";
+        if ("mono".equals(v) || "material".equals(v) || "material-you".equals(v) || "themed".equals(v)) {
+            return "monochrome";
+        }
+        if ("fg".equals(v) || "adaptive-fg".equals(v) || "foreground".equals(v)) {
+            return "foreground";
+        }
+        return "default";
     }
 
     private static JSObject listAppsViaLauncherApps(Context ctx, String query) {
@@ -302,7 +369,7 @@ public final class LauncherCoordinator {
         }
     }
 
-    private static JSObject appIconViaLauncherApps(Context ctx, String pkg, int size) {
+    private static JSObject appIconViaLauncherApps(Context ctx, String pkg, int size, String variant) {
         try {
             LauncherApps launcherApps = ctx.getSystemService(LauncherApps.class);
             if (launcherApps == null) {
@@ -314,7 +381,7 @@ public final class LauncherCoordinator {
                 return fail("launcher:icon", "app-not-found");
             }
             Drawable drawable = list.get(0).getIcon(ctx.getResources().getDisplayMetrics().densityDpi);
-            return encodeIconDrawable(drawable, pkg, size);
+            return encodeIconDrawable(drawable, pkg, size, variant);
         } catch (Exception e) {
             Log.w(TAG, "appIconViaLauncherApps failed pkg=" + pkg, e);
             return fail("launcher:icon", e.getMessage() != null ? e.getMessage() : "icon-failed");
@@ -322,17 +389,21 @@ public final class LauncherCoordinator {
     }
 
     private static JSObject appIconViaPackageManager(Context ctx, String pkg, int size) {
+        return appIconViaPackageManager(ctx, pkg, size, "default");
+    }
+
+    private static JSObject appIconViaPackageManager(Context ctx, String pkg, int size, String variant) {
         try {
             PackageManager pm = ctx.getPackageManager();
             Drawable drawable = pm.getApplicationIcon(pkg);
-            return encodeIconDrawable(drawable, pkg, size);
+            return encodeIconDrawable(drawable, pkg, size, variant);
         } catch (Exception e) {
             Log.w(TAG, "appIconViaPackageManager failed pkg=" + pkg, e);
             return fail("launcher:icon", e.getMessage() != null ? e.getMessage() : "icon-failed");
         }
     }
 
-    private static JSObject encodeIconDrawable(Drawable drawable, String pkg, int size) {
+    private static JSObject encodeIconDrawable(Drawable drawable, String pkg, int size, String variant) {
         if (drawable == null) {
             return fail("launcher:icon", "icon-unavailable");
         }
@@ -340,7 +411,9 @@ public final class LauncherCoordinator {
             Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(bitmap);
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
-            drawIconDrawableUnmasked(drawable, canvas, size);
+            if (!drawIconDrawableUnmasked(drawable, canvas, size, variant)) {
+                return fail("launcher:icon", "variant-unavailable");
+            }
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, bos)) {
                 return fail("launcher:icon", "compress-failed");
@@ -348,11 +421,13 @@ public final class LauncherCoordinator {
             String base64 = Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP);
             JSObject echo = new JSObject();
             echo.put("cacheKey", pkg);
+            echo.put("variant", variant);
             echo.put("mime", "image/png");
             echo.put("base64", base64);
             JSObject r = base(true, "launcher:icon");
             r.put("echo", echo);
             r.put("cacheKey", pkg);
+            r.put("variant", variant);
             r.put("mime", "image/png");
             r.put("base64", base64);
             return r;
@@ -363,12 +438,33 @@ public final class LauncherCoordinator {
     }
 
     /**
-     * Draw adaptive foreground/background layers full-bleed (no OS circular mask).
+     * Draw adaptive layers full-bleed (no OS circular mask).
      * Do NOT call AdaptiveIconDrawable.draw() — it applies the system mask path.
+     *
+     * @return false when the requested variant is missing (e.g. no Material You monochrome).
      */
-    private static void drawIconDrawableUnmasked(Drawable drawable, Canvas canvas, int size) {
+    private static boolean drawIconDrawableUnmasked(
+            Drawable drawable, Canvas canvas, int size, String variant) {
+        String v = normalizeIconVariant(variant);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && drawable instanceof AdaptiveIconDrawable) {
             AdaptiveIconDrawable adaptive = (AdaptiveIconDrawable) drawable;
+            if ("monochrome".equals(v)) {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                    return false;
+                }
+                Drawable mono = adaptive.getMonochrome();
+                if (mono == null) return false;
+                mono.setBounds(0, 0, size, size);
+                mono.draw(canvas);
+                return true;
+            }
+            if ("foreground".equals(v)) {
+                Drawable foreground = adaptive.getForeground();
+                if (foreground == null) return false;
+                foreground.setBounds(0, 0, size, size);
+                foreground.draw(canvas);
+                return true;
+            }
             Drawable background = adaptive.getBackground();
             Drawable foreground = adaptive.getForeground();
             if (background != null) {
@@ -379,10 +475,15 @@ public final class LauncherCoordinator {
                 foreground.setBounds(0, 0, size, size);
                 foreground.draw(canvas);
             }
-            return;
+            return true;
+        }
+        if ("monochrome".equals(v) || "foreground".equals(v)) {
+            /* Non-adaptive: no separate Material You / FG layers. */
+            return false;
         }
         drawable.setBounds(0, 0, size, size);
         drawable.draw(canvas);
+        return true;
     }
 
     private static boolean queryIsDefaultHome(Context ctx) {

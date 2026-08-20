@@ -75,7 +75,15 @@ public class CwsLauncherBridgePlugin extends Plugin {
                     packageName = payload != null ? payload.getString("cacheKey", "") : "";
                 }
                 Integer size = payload != null ? payload.getInteger("size", 64) : 64;
-                return LauncherCoordinator.appIcon(getContext(), packageName, size);
+                String variant = payload != null ? payload.getString("variant", "default") : "default";
+                return LauncherCoordinator.appIcon(getContext(), packageName, size, variant);
+            }
+            case "launcher:icon-variants": {
+                String packageName = payload != null ? payload.getString("packageName", "") : "";
+                if (packageName == null || packageName.isEmpty()) {
+                    packageName = payload != null ? payload.getString("cacheKey", "") : "";
+                }
+                return LauncherCoordinator.listIconVariants(getContext(), packageName);
             }
             default: {
                 JSObject r = baseResult(false, channel);
