@@ -38,7 +38,8 @@
         "bump:capacitor:version": "node ./scripts/bump-capacitor-version.mjs",
         "sync:capacitor:android": "node ./scripts/sync-capacitor-android.mjs",
         "sync:capacitor:identity": "node ./scripts/sync-capacitor-app-identity.mjs",
-        "sync:capacitor:icons": "node ./scripts/sync-capacitor-android-icons.mjs"
+        "sync:capacitor:icons": "node ./scripts/sync-capacitor-android-icons.mjs",
+        "build:crx": "npm --prefix ../CWSP-crx run build:crx"
     },
     "browserslist": [
         "last 1 chrome version",
