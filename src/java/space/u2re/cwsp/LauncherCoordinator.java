@@ -107,22 +107,73 @@ public final class LauncherCoordinator {
     }
 
     /**
-     * @param variant {@code default} | {@code monochrome} (Material You, API 33+) | {@code foreground}
+     * @param variant {@code default} | {@code monochrome} | {@code foreground}
+     * @param iconPackPackage optional icon-pack package
+     * @param drawableName optional explicit drawable inside the pack (browse pick)
      */
-    public static JSObject appIcon(Context ctx, String packageName, Integer sizePx, String variant) {
+    public static JSObject appIcon(
+            Context ctx,
+            String packageName,
+            Integer sizePx,
+            String variant,
+            String iconPackPackage,
+            String drawableName) {
         if (ctx == null) {
             return fail("launcher:icon", "context-null");
         }
         String pkg = packageName != null ? packageName.trim() : "";
+        String pack = iconPackPackage != null ? iconPackPackage.trim() : "";
+        String drawable = drawableName != null ? drawableName.trim() : "";
+        /* Explicit pack drawable — packageName may be target app or the pack itself. */
+        if (!drawable.isEmpty()) {
+            String packPkg = !pack.isEmpty() ? pack : pkg;
+            if (packPkg.isEmpty()) {
+                return fail("launcher:icon", "missing-pack");
+            }
+            Drawable d = IconPackResolver.resolveDrawableByName(ctx, packPkg, drawable);
+            if (d == null) {
+                return fail("launcher:icon", "icon-pack-drawable-missing");
+            }
+            return encodePackIconFilled(d, pkg.isEmpty() ? packPkg : pkg, sizePx, packPkg, drawable);
+        }
         if (pkg.isEmpty()) {
             return fail("launcher:icon", "missing-package");
         }
         int size = sizePx != null ? sizePx : 96;
         if (size < 16) size = 16;
-        if (size > 192) size = 192;
+        if (size > 512) size = 512;
+        if (!pack.isEmpty()) {
+            Drawable themed = IconPackResolver.resolveThemedIcon(ctx, pkg, pack);
+            if (themed == null) {
+                return fail("launcher:icon", "icon-pack-unmapped");
+            }
+            return encodePackIconFilled(themed, pkg, size, pack, null);
+        }
         String v = normalizeIconVariant(variant);
-        /* WHY: PackageManager adaptive layers — no LauncherApps circular badge/mask. */
         return appIconViaPackageManager(ctx, pkg, size, v);
+    }
+
+    public static JSObject appIcon(
+            Context ctx, String packageName, Integer sizePx, String variant, String iconPackPackage) {
+        return appIcon(ctx, packageName, sizePx, variant, iconPackPackage, null);
+    }
+
+    /**
+     * @param variant {@code default} | {@code monochrome} (Material You, API 33+) | {@code foreground}
+     */
+    public static JSObject appIcon(Context ctx, String packageName, Integer sizePx, String variant) {
+        return appIcon(ctx, packageName, sizePx, variant, null, null);
+    }
+
+    /** Installed launcher icon packs (ADW / Nova / GO theme intents). */
+    public static JSObject listIconPacks(Context ctx) {
+        return IconPackResolver.listIconPacks(ctx);
+    }
+
+    /** Browse drawables declared in a pack's appfilter. */
+    public static JSObject listPackIcons(
+            Context ctx, String packPackage, String query, Integer limit) {
+        return IconPackResolver.listPackIcons(ctx, packPackage, query, limit);
     }
 
     /** List which icon variants exist for a package (no bitmap payload). */
@@ -404,6 +455,121 @@ public final class LauncherCoordinator {
     }
 
     private static JSObject encodeIconDrawable(Drawable drawable, String pkg, int size, String variant) {
+        return encodeIconDrawableWithPack(drawable, pkg, size, variant, null);
+    }
+
+    private static JSObject encodeIconDrawableWithPack(
+            Drawable drawable, String pkg, int size, String pack) {
+        return encodeIconDrawableWithPack(drawable, pkg, size, "default", pack);
+    }
+
+    /**
+     * Pack icons (Lena Adaptive, …) often bake large transparent padding.
+     * Render → trim opaque bounds → cover-fill the tile bitmap.
+     */
+    private static JSObject encodePackIconFilled(
+            Drawable drawable, String pkg, Integer sizePx, String pack, String drawableName) {
+        int size = sizePx != null ? sizePx : 96;
+        if (size < 16) size = 16;
+        if (size > 512) size = 512;
+        if (drawable == null) {
+            return fail("launcher:icon", "icon-unavailable");
+        }
+        try {
+            int probe = Math.max(size * 2, 256);
+            Bitmap src = Bitmap.createBitmap(probe, probe, Bitmap.Config.ARGB_8888);
+            Canvas srcCanvas = new Canvas(src);
+            srcCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+            if (!drawIconDrawableUnmasked(drawable, srcCanvas, probe, "default")) {
+                return fail("launcher:icon", "variant-unavailable");
+            }
+            int[] bounds = opaqueBounds(src);
+            Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            Canvas outCanvas = new Canvas(out);
+            outCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+            if (bounds == null) {
+                /* Fully transparent / failed trim — fall back to centered draw. */
+                if (!drawIconDrawableUnmasked(drawable, outCanvas, size, "default")) {
+                    return fail("launcher:icon", "variant-unavailable");
+                }
+            } else {
+                int l = bounds[0];
+                int t = bounds[1];
+                int r = bounds[2];
+                int b = bounds[3];
+                int bw = Math.max(1, r - l);
+                int bh = Math.max(1, b - t);
+                /* Cover-fill with slight overscale so soft edges don't leave a halo. */
+                float scale = Math.max((float) size / bw, (float) size / bh) * 1.06f;
+                float dw = bw * scale;
+                float dh = bh * scale;
+                float dx = (size - dw) * 0.5f;
+                float dy = (size - dh) * 0.5f;
+                android.graphics.Rect srcRect = new android.graphics.Rect(l, t, r, b);
+                android.graphics.RectF dstRect = new android.graphics.RectF(dx, dy, dx + dw, dy + dh);
+                outCanvas.drawBitmap(src, srcRect, dstRect, null);
+            }
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            if (!out.compress(Bitmap.CompressFormat.PNG, 100, bos)) {
+                return fail("launcher:icon", "compress-failed");
+            }
+            String base64 = Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP);
+            String packKey = pack != null ? pack.trim() : "";
+            String drawKey = drawableName != null ? drawableName.trim() : "";
+            JSObject echo = new JSObject();
+            echo.put("cacheKey", pkg);
+            echo.put("variant", "default");
+            if (!packKey.isEmpty()) echo.put("pack", packKey);
+            if (!drawKey.isEmpty()) echo.put("drawable", drawKey);
+            echo.put("mime", "image/png");
+            echo.put("base64", base64);
+            JSObject result = base(true, "launcher:icon");
+            result.put("echo", echo);
+            result.put("cacheKey", pkg);
+            result.put("variant", "default");
+            if (!packKey.isEmpty()) result.put("pack", packKey);
+            if (!drawKey.isEmpty()) result.put("drawable", drawKey);
+            result.put("mime", "image/png");
+            result.put("base64", base64);
+            return result;
+        } catch (Exception e) {
+            Log.w(TAG, "encodePackIconFilled failed pkg=" + pkg, e);
+            return fail("launcher:icon", e.getMessage() != null ? e.getMessage() : "icon-failed");
+        }
+    }
+
+    /** @return left,top,right,bottom opaque bounds or null if empty */
+    private static int[] opaqueBounds(Bitmap bitmap) {
+        if (bitmap == null) return null;
+        int w = bitmap.getWidth();
+        int h = bitmap.getHeight();
+        int left = w;
+        int top = h;
+        int right = -1;
+        int bottom = -1;
+        int[] row = new int[w];
+        for (int y = 0; y < h; y++) {
+            bitmap.getPixels(row, 0, w, 0, y, w, 1);
+            for (int x = 0; x < w; x++) {
+                if (((row[x] >>> 24) & 0xff) > 12) {
+                    if (x < left) left = x;
+                    if (x > right) right = x;
+                    if (y < top) top = y;
+                    if (y > bottom) bottom = y;
+                }
+            }
+        }
+        if (right < left || bottom < top) return null;
+        /* Pad 1px so we don't shave anti-alias. */
+        left = Math.max(0, left - 1);
+        top = Math.max(0, top - 1);
+        right = Math.min(w, right + 2);
+        bottom = Math.min(h, bottom + 2);
+        return new int[] {left, top, right, bottom};
+    }
+
+    private static JSObject encodeIconDrawableWithPack(
+            Drawable drawable, String pkg, int size, String variant, String pack) {
         if (drawable == null) {
             return fail("launcher:icon", "icon-unavailable");
         }
@@ -419,15 +585,18 @@ public final class LauncherCoordinator {
                 return fail("launcher:icon", "compress-failed");
             }
             String base64 = Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP);
+            String packKey = pack != null ? pack.trim() : "";
             JSObject echo = new JSObject();
             echo.put("cacheKey", pkg);
             echo.put("variant", variant);
+            if (!packKey.isEmpty()) echo.put("pack", packKey);
             echo.put("mime", "image/png");
             echo.put("base64", base64);
             JSObject r = base(true, "launcher:icon");
             r.put("echo", echo);
             r.put("cacheKey", pkg);
             r.put("variant", variant);
+            if (!packKey.isEmpty()) r.put("pack", packKey);
             r.put("mime", "image/png");
             r.put("base64", base64);
             return r;

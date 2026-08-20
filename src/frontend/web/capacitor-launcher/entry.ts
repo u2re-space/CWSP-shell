@@ -9,6 +9,8 @@ import { bootEnvironment } from "boot/BootLoader";
 import { installLauncherHomeLifecycle } from "com/routing/native/launcher-home-lifecycle";
 import {
     launcherIcon,
+    launcherIconPackIcons,
+    launcherIconPacks,
     launcherIconVariants,
     launcherIsDefault,
     launcherLaunch,
@@ -37,13 +39,17 @@ setLauncherBridgeForAppMenu({
     launcherList,
     launcherLaunch,
     launcherIcon,
-    launcherIconVariants
+    launcherIconVariants,
+    launcherIconPacks,
+    launcherIconPackIcons
 });
 
 setLauncherBridgeForSpeedDial({
     launcherLaunch,
     launcherIcon,
     launcherIconVariants,
+    launcherIconPacks,
+    launcherIconPackIcons,
     launcherList
 });
 

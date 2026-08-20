@@ -71,14 +71,24 @@ export async function launcherLaunch(pkg: string, component?: string): Promise<b
 export async function launcherIcon(
     cacheKey: string,
     size = 64,
-    variant: LauncherIconVariantId | string = "default"
+    variant: LauncherIconVariantId | string = "default",
+    pack = "",
+    drawable = ""
 ): Promise<string> {
     const key = String(cacheKey || "").trim();
     if (!key) return "";
     const v = String(variant || "default").trim() || "default";
+    const packPkg = String(pack || "").trim();
+    const draw = String(drawable || "").trim();
+    const payload: Record<string, unknown> = { packageName: key, cacheKey: key, size, variant: v };
+    if (packPkg) {
+        payload.pack = packPkg;
+        payload.iconPack = packPkg;
+    }
+    if (draw) payload.drawable = draw;
     const r = await invokeCwsPlatformIPC({
         channel: "launcher:icon",
-        payload: { packageName: key, cacheKey: key, size, variant: v }
+        payload
     });
     if (!r.ok) return "";
     const echo = r.echo as LauncherIconEcho | undefined;
@@ -102,13 +112,63 @@ export async function launcherIconVariants(cacheKey: string): Promise<LauncherIc
     return Array.isArray(variants) ? variants : [];
 }
 
+export type LauncherIconPackEntry = {
+    packageName: string;
+    label: string;
+    iconCacheKey?: string;
+};
+
+type LauncherIconPacksEcho = {
+    packs?: LauncherIconPackEntry[];
+    reason?: string;
+};
+
+/** Installed launcher icon packs (ADW / Nova / GO theme intents). */
+export async function launcherIconPacks(): Promise<LauncherIconPackEntry[]> {
+    const r = await invokeCwsPlatformIPC({ channel: "launcher:icon-packs" });
+    if (!r.ok) return [];
+    const echo = r.echo as LauncherIconPacksEcho | undefined;
+    const packs = echo?.packs ?? (r as { packs?: LauncherIconPackEntry[] }).packs;
+    return Array.isArray(packs) ? packs : [];
+}
+
+export type LauncherIconPackIconEntry = {
+    drawable: string;
+    label: string;
+};
+
+type LauncherIconPackIconsEcho = {
+    icons?: LauncherIconPackIconEntry[];
+    reason?: string;
+};
+
+/** Browse drawable names declared in a pack's appfilter. */
+export async function launcherIconPackIcons(
+    pack: string,
+    query = "",
+    limit = 120
+): Promise<LauncherIconPackIconEntry[]> {
+    const packPkg = String(pack || "").trim();
+    if (!packPkg) return [];
+    const r = await invokeCwsPlatformIPC({
+        channel: "launcher:icon-pack-icons",
+        payload: { pack: packPkg, packageName: packPkg, query: String(query || "").trim(), limit }
+    });
+    if (!r.ok) return [];
+    const echo = r.echo as LauncherIconPackIconsEcho | undefined;
+    const icons = echo?.icons ?? (r as { icons?: LauncherIconPackIconEntry[] }).icons;
+    return Array.isArray(icons) ? icons : [];
+}
+
 /** PNG (or native mime) as blob: object URL — preferred for WebView `<img src>`. */
 export async function launcherIconBlobUrl(
     cacheKey: string,
     size = 64,
-    variant: LauncherIconVariantId | string = "default"
+    variant: LauncherIconVariantId | string = "default",
+    pack = "",
+    drawable = ""
 ): Promise<string> {
-    const dataUrl = await launcherIcon(cacheKey, size, variant);
+    const dataUrl = await launcherIcon(cacheKey, size, variant, pack, drawable);
     if (!dataUrl) return "";
     const res = await fetch(dataUrl);
     const blob = await res.blob();

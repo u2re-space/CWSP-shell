@@ -76,7 +76,13 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 }
                 Integer size = payload != null ? payload.getInteger("size", 64) : 64;
                 String variant = payload != null ? payload.getString("variant", "default") : "default";
-                return LauncherCoordinator.appIcon(getContext(), packageName, size, variant);
+                String pack = payload != null ? payload.getString("pack", "") : "";
+                if (pack == null || pack.isEmpty()) {
+                    pack = payload != null ? payload.getString("iconPack", "") : "";
+                }
+                String drawable = payload != null ? payload.getString("drawable", "") : "";
+                return LauncherCoordinator.appIcon(
+                        getContext(), packageName, size, variant, pack, drawable);
             }
             case "launcher:icon-variants": {
                 String packageName = payload != null ? payload.getString("packageName", "") : "";
@@ -84,6 +90,17 @@ public class CwsLauncherBridgePlugin extends Plugin {
                     packageName = payload != null ? payload.getString("cacheKey", "") : "";
                 }
                 return LauncherCoordinator.listIconVariants(getContext(), packageName);
+            }
+            case "launcher:icon-packs":
+                return LauncherCoordinator.listIconPacks(getContext());
+            case "launcher:icon-pack-icons": {
+                String pack = payload != null ? payload.getString("pack", "") : "";
+                if (pack == null || pack.isEmpty()) {
+                    pack = payload != null ? payload.getString("packageName", "") : "";
+                }
+                String query = payload != null ? payload.getString("query", "") : "";
+                Integer limit = payload != null ? payload.getInteger("limit", 120) : 120;
+                return LauncherCoordinator.listPackIcons(getContext(), pack, query, limit);
             }
             default: {
                 JSObject r = baseResult(false, channel);
