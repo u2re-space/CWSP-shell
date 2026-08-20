@@ -102,6 +102,124 @@ public final class LauncherCoordinator {
         return launchAppViaPackageManager(ctx, pkg, componentName);
     }
 
+    /**
+     * Invoke a pinned app shortcut the way a real launcher must — Material Files document
+     * pins often redact Intent data, so {@code startShortcut(pkg, id)} is the only reliable open.
+     */
+    public static JSObject startShortcut(Context ctx, String packageName, String shortcutId) {
+        if (ctx == null) {
+            return fail("launcher:start-shortcut", "context-null");
+        }
+        String pkg = packageName != null ? packageName.trim() : "";
+        String id = shortcutId != null ? shortcutId.trim() : "";
+        if (pkg.isEmpty() || id.isEmpty()) {
+            return fail("launcher:start-shortcut", "missing-package-or-id");
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) {
+            return fail("launcher:start-shortcut", "api-too-low");
+        }
+        try {
+            LauncherApps launcherApps =
+                    (LauncherApps) ctx.getSystemService(Context.LAUNCHER_APPS_SERVICE);
+            if (launcherApps == null) {
+                return fail("launcher:start-shortcut", "launcher-apps-unavailable");
+            }
+            UserHandle user = Process.myUserHandle();
+            launcherApps.startShortcut(pkg, id, null, null, user);
+            JSObject echo = new JSObject();
+            echo.put("packageName", pkg);
+            echo.put("shortcutId", id);
+            JSObject r = base(true, "launcher:start-shortcut");
+            r.put("echo", echo);
+            return r;
+        } catch (Exception e) {
+            Log.w(TAG, "startShortcut failed pkg=" + pkg + " id=" + id, e);
+            return fail(
+                    "launcher:start-shortcut",
+                    e.getMessage() != null ? e.getMessage() : "start-failed");
+        }
+    }
+
+    /**
+     * Icon for a pinned app shortcut (document / dynamic) — not the publisher app icon.
+     */
+    public static JSObject shortcutIcon(
+            Context ctx, String packageName, String shortcutId, Integer sizePx) {
+        if (ctx == null) {
+            return fail("launcher:shortcut-icon", "context-null");
+        }
+        String pkg = packageName != null ? packageName.trim() : "";
+        String id = shortcutId != null ? shortcutId.trim() : "";
+        if (pkg.isEmpty() || id.isEmpty()) {
+            return fail("launcher:shortcut-icon", "missing-package-or-id");
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) {
+            return fail("launcher:shortcut-icon", "api-too-low");
+        }
+        int size = sizePx != null ? sizePx : 96;
+        if (size < 16) size = 16;
+        if (size > 512) size = 512;
+        try {
+            LauncherApps launcherApps =
+                    (LauncherApps) ctx.getSystemService(Context.LAUNCHER_APPS_SERVICE);
+            if (launcherApps == null) {
+                return fail("launcher:shortcut-icon", "launcher-apps-unavailable");
+            }
+            UserHandle user = Process.myUserHandle();
+            android.content.pm.LauncherApps.ShortcutQuery query =
+                    new android.content.pm.LauncherApps.ShortcutQuery();
+            query.setPackage(pkg);
+            query.setShortcutIds(java.util.Collections.singletonList(id));
+            query.setQueryFlags(
+                    android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
+                            | android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC
+                            | android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST);
+            java.util.List<android.content.pm.ShortcutInfo> list =
+                    launcherApps.getShortcuts(query, user);
+            if (list == null || list.isEmpty()) {
+                return fail("launcher:shortcut-icon", "shortcut-not-found");
+            }
+            android.content.pm.ShortcutInfo info = list.get(0);
+            int density = ctx.getResources().getDisplayMetrics().densityDpi;
+            Drawable drawable = launcherApps.getShortcutIconDrawable(info, density);
+            if (drawable == null) {
+                return fail("launcher:shortcut-icon", "icon-unavailable");
+            }
+            JSObject encoded = encodeIconDrawable(drawable, pkg + "/" + id, size, "default");
+            if (!encoded.getBoolean("ok", false)) {
+                return fail("launcher:shortcut-icon", "encode-failed");
+            }
+            encoded.put("channel", "launcher:shortcut-icon");
+            return encoded;
+        } catch (Exception e) {
+            Log.w(TAG, "shortcutIcon failed pkg=" + pkg + " id=" + id, e);
+            return fail(
+                    "launcher:shortcut-icon",
+                    e.getMessage() != null ? e.getMessage() : "icon-failed");
+        }
+    }
+
+    /** PNG data-URL for a ShortcutInfo icon (pin-time capture). */
+    public static String shortcutInfoToDataUrl(
+            Context ctx, LauncherApps launcherApps, android.content.pm.ShortcutInfo info, int size) {
+        if (ctx == null || launcherApps == null || info == null) return "";
+        try {
+            int density = ctx.getResources().getDisplayMetrics().densityDpi;
+            Drawable drawable = launcherApps.getShortcutIconDrawable(info, density);
+            if (drawable == null) return "";
+            int sz = size > 0 ? size : 192;
+            JSObject encoded = encodeIconDrawable(drawable, "pin-shortcut", sz, "default");
+            if (!encoded.getBoolean("ok", false)) return "";
+            String b64 = encoded.getString("base64", "");
+            String mime = encoded.getString("mime", "image/png");
+            if (b64 == null || b64.isEmpty()) return "";
+            return "data:" + mime + ";base64," + b64;
+        } catch (Exception e) {
+            Log.w(TAG, "shortcutInfoToDataUrl failed", e);
+            return "";
+        }
+    }
+
     public static JSObject appIcon(Context ctx, String packageName, Integer sizePx) {
         return appIcon(ctx, packageName, sizePx, "default");
     }
@@ -690,6 +808,205 @@ public final class LauncherCoordinator {
         JSObject r = new JSObject();
         r.put("ok", ok);
         r.put("channel", channel);
+        return r;
+    }
+
+    /**
+     * Open http(s)/deep-link via {@link Intent#ACTION_VIEW} — optional package or system chooser
+     * (Chrome, YouTube, …).
+     *
+     * @param mimeType optional MIME (e.g. text/plain) — without it, content:// often resolves to Files
+     */
+    public static JSObject openUri(
+            Context ctx,
+            String rawUri,
+            String packageName,
+            boolean chooser,
+            String chooserTitle,
+            String mimeType) {
+        String uri = rawUri != null ? rawUri.trim() : "";
+        if (uri.isEmpty()) {
+            return fail("launcher:open-uri", "uri-missing");
+        }
+        try {
+            Intent view;
+            String resolvedMime = mimeType != null ? mimeType.trim() : "";
+            if (uri.regionMatches(true, 0, "intent:", 0, 7)) {
+                view = Intent.parseUri(uri, Intent.URI_INTENT_SCHEME);
+                if (view == null) {
+                    return fail("launcher:open-uri", "intent-uri-invalid");
+                }
+                /*
+                 * WHY: pinned intent: URIs often embed the publisher package (Material Files).
+                 * For document schemes, clear package/component so the system picks the
+                 * correct viewer (Gallery, PDF, …) instead of always reopening Files.
+                 */
+                try {
+                    android.net.Uri d = view.getData();
+                    String sch =
+                            d != null && d.getScheme() != null
+                                    ? d.getScheme().toLowerCase(java.util.Locale.US)
+                                    : "";
+                    if ("content".equals(sch) || "file".equals(sch)) {
+                        view.setPackage(null);
+                        view.setComponent(null);
+                        view.addFlags(
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                        if (resolvedMime.isEmpty() && view.getType() != null) {
+                            resolvedMime = view.getType().trim();
+                        }
+                        if (!resolvedMime.isEmpty() && d != null) {
+                            view.setDataAndType(d, resolvedMime);
+                        }
+                    }
+                } catch (Exception ignored) {
+                    /* ignore */
+                }
+            } else {
+                android.net.Uri parsed = android.net.Uri.parse(uri);
+                if (parsed == null || parsed.getScheme() == null || parsed.getScheme().isEmpty()) {
+                    return fail("launcher:open-uri", "uri-invalid");
+                }
+                String scheme = parsed.getScheme().toLowerCase(java.util.Locale.US);
+                if (resolvedMime.isEmpty()) {
+                    resolvedMime = guessMimeFromUri(uri);
+                }
+                if (("content".equals(scheme) || "file".equals(scheme)) && !resolvedMime.isEmpty()) {
+                    view = new Intent(Intent.ACTION_VIEW);
+                    view.setDataAndType(parsed, resolvedMime);
+                } else {
+                    view = new Intent(Intent.ACTION_VIEW, parsed);
+                }
+                if ("content".equals(scheme) || "file".equals(scheme)) {
+                    view.addFlags(
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    /* WHY: grants apply via ClipData on some OEMs when using chooser. */
+                    try {
+                        if (view.getClipData() == null) {
+                            view.setClipData(
+                                    android.content.ClipData.newUri(
+                                            ctx.getContentResolver(), "cwsp", parsed));
+                        }
+                    } catch (Exception ignored) {
+                        /* ignore */
+                    }
+                }
+            }
+            view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            String pkg = packageName != null ? packageName.trim() : "";
+            /*
+             * WHY: never force package for content/file — caller may still pass publisher pkg
+             * from older pinned tiles.
+             */
+            String openScheme = "";
+            try {
+                if (view.getData() != null && view.getData().getScheme() != null) {
+                    openScheme = view.getData().getScheme().toLowerCase(java.util.Locale.US);
+                }
+            } catch (Exception ignored) {
+                /* ignore */
+            }
+            boolean documentUri = "content".equals(openScheme) || "file".equals(openScheme);
+            if (!pkg.isEmpty() && view.getPackage() == null && !documentUri) {
+                view.setPackage(pkg);
+            }
+            /*
+             * WHY: previously we skipped chooser for all content:// — default handler for
+             * untyped text documents is Material Files, so .txt shortcuts "duplicated" Files.
+             * With MIME (text/plain) + chooser, the user gets a real editor.
+             */
+            boolean useChooser =
+                    chooser
+                            && pkg.isEmpty()
+                            && view.getPackage() == null
+                            && !uri.regionMatches(true, 0, "intent:", 0, 7);
+            Intent launch = view;
+            if (useChooser) {
+                String title =
+                        chooserTitle != null && !chooserTitle.trim().isEmpty()
+                                ? chooserTitle.trim()
+                                : "Open with";
+                launch = Intent.createChooser(view, title);
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (documentUri) {
+                    launch.addFlags(
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                }
+            }
+            ctx.startActivity(launch);
+            JSObject echo = new JSObject();
+            echo.put("opened", true);
+            echo.put("uri", uri);
+            if (!pkg.isEmpty()) echo.put("packageName", pkg);
+            if (!resolvedMime.isEmpty()) echo.put("mimeType", resolvedMime);
+            echo.put("chooser", useChooser);
+            JSObject r = base(true, "launcher:open-uri");
+            r.put("echo", echo);
+            return r;
+        } catch (Exception e) {
+            Log.w(TAG, "openUri failed uri=" + uri, e);
+            return fail(
+                    "launcher:open-uri",
+                    e.getMessage() != null ? e.getMessage() : "open-failed");
+        }
+    }
+
+    /** Overload for callers that omit MIME. */
+    public static JSObject openUri(
+            Context ctx, String rawUri, String packageName, boolean chooser, String chooserTitle) {
+        return openUri(ctx, rawUri, packageName, chooser, chooserTitle, "");
+    }
+
+    private static String guessMimeFromUri(String uri) {
+        String s = uri != null ? uri.toLowerCase(java.util.Locale.US) : "";
+        if (s.contains(".txt") || s.contains(".log") || s.contains(".csv")) return "text/plain";
+        if (s.contains(".md")) return "text/markdown";
+        if (s.contains(".pdf")) return "application/pdf";
+        if (s.contains(".png")) return "image/png";
+        if (s.contains(".jpg") || s.contains(".jpeg")) return "image/jpeg";
+        if (s.contains(".gif")) return "image/gif";
+        if (s.contains(".webp")) return "image/webp";
+        if (s.contains(".mp4")) return "video/mp4";
+        if (s.contains(".mp3")) return "audio/mpeg";
+        if (s.contains(".html") || s.contains(".htm")) return "text/html";
+        if (s.contains(".json")) return "application/json";
+        if (s.contains(".zip")) return "application/zip";
+        return "";
+    }
+
+    /** Last Share / VIEW pin payload — survives WebView boot race. */
+    private static final Object PENDING_PIN_LOCK = new Object();
+    private static JSObject pendingPin = null;
+
+    public static void stashPendingPin(JSObject pin) {
+        synchronized (PENDING_PIN_LOCK) {
+            pendingPin = pin;
+        }
+    }
+
+    /** Non-destructive peek for HOME resume after INSTALL_SHORTCUT broadcast. */
+    public static JSObject peekPendingPin() {
+        synchronized (PENDING_PIN_LOCK) {
+            return pendingPin;
+        }
+    }
+
+    public static JSObject consumePendingPin() {
+        JSObject pin;
+        synchronized (PENDING_PIN_LOCK) {
+            pin = pendingPin;
+            pendingPin = null;
+        }
+        JSObject r = base(true, "launcher:pending-pin");
+        JSObject echo = new JSObject();
+        if (pin != null) {
+            echo.put("pin", pin);
+            r.put("pin", pin);
+        }
+        r.put("echo", echo);
         return r;
     }
 }

@@ -7,6 +7,7 @@
 
 import { bootEnvironment } from "boot/BootLoader";
 import { installLauncherHomeLifecycle } from "com/routing/native/launcher-home-lifecycle";
+import { readClipboardTextFromDevice } from "com/routing/native/clipboard-device";
 import {
     launcherIcon,
     launcherIconPackIcons,
@@ -15,17 +16,24 @@ import {
     launcherIsDefault,
     launcherLaunch,
     launcherList,
-    launcherRequestDefault
+    launcherOpenUri,
+    launcherRequestDefault,
+    launcherStartShortcut,
+    launcherShortcutIcon
 } from "com/routing/native/launcher-bridge";
 import { setLauncherBridgeForAppMenu } from "fl-ui/navigation/app-menu/AppMenu";
 import { setLauncherBridgeForSpeedDial } from "fl-ui/speed-dial/action-registry";
 
-const enabledViews = ["minimal", "home", "explorer", "settings", "viewer"] as const;
+const enabledViews = ["minimal", "home", "explorer", "settings", "viewer", "browser"] as const;
 
 document.documentElement.dataset.cwspShellRole = "launcher";
 document.documentElement.dataset.cwspNativeShell = "capacitor";
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
 document.documentElement.dataset.cwspDefaultView = "home";
+
+/** WHY: WebView clipboard.readText is empty/denied on Android; Speed Dial Paste uses this hook. */
+(globalThis as Record<string, unknown>).__CWSP_READ_CLIPBOARD_TEXT__ = () =>
+    readClipboardTextFromDevice();
 
 void import("shells/environment/components/statusbar/capacitor-native-safe-area")
     .then((m) => m.installCapacitorNativeSafeAreaInsets())
@@ -46,6 +54,9 @@ setLauncherBridgeForAppMenu({
 
 setLauncherBridgeForSpeedDial({
     launcherLaunch,
+    launcherStartShortcut,
+    launcherShortcutIcon,
+    launcherOpenUri,
     launcherIcon,
     launcherIconVariants,
     launcherIconPacks,

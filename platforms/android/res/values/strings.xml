@@ -4,4 +4,5 @@
     <string name="title_activity_main">cw.u2re.space</string>
     <string name="package_name">space.u2re.cw</string>
     <string name="custom_url_scheme">space.u2re.cw</string>
+    <string name="share_pin_label">Add to desktop</string>
 </resources>

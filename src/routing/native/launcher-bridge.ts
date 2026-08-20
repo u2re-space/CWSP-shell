@@ -68,6 +68,46 @@ export async function launcherLaunch(pkg: string, component?: string): Promise<b
     return r.ok === true;
 }
 
+/** Material Files document pins — LauncherApps.startShortcut(package, id). */
+export async function launcherStartShortcut(
+    pkg: string,
+    shortcutId: string
+): Promise<boolean> {
+    const packageName = String(pkg || "").trim();
+    const id = String(shortcutId || "").trim();
+    if (!packageName || !id) return false;
+    const r = await invokeCwsPlatformIPC({
+        channel: "launcher:start-shortcut",
+        payload: { packageName, shortcutId: id }
+    });
+    return r.ok === true;
+}
+
+/** Shortcut-specific icon (not the publisher app icon). */
+export async function launcherShortcutIcon(
+    pkg: string,
+    shortcutId: string,
+    size = 96
+): Promise<string> {
+    const packageName = String(pkg || "").trim();
+    const id = String(shortcutId || "").trim();
+    if (!packageName || !id) return "";
+    const r = await invokeCwsPlatformIPC({
+        channel: "launcher:shortcut-icon",
+        payload: {
+            packageName,
+            shortcutId: id,
+            size: Math.max(16, Math.min(512, Math.round(Number(size) || 96)))
+        }
+    });
+    if (!r.ok) return "";
+    const echo = r.echo as { base64?: string; mime?: string } | undefined;
+    const base64 = String(echo?.base64 || (r as { base64?: string }).base64 || "").trim();
+    if (!base64) return "";
+    const mime = String(echo?.mime || (r as { mime?: string }).mime || "image/png").trim() || "image/png";
+    return `data:${mime};base64,${base64}`;
+}
+
 export async function launcherIcon(
     cacheKey: string,
     size = 64,
@@ -176,4 +216,68 @@ export async function launcherIconBlobUrl(
     const normalized =
         blob.type === type ? blob : new Blob([await blob.arrayBuffer()], { type });
     return URL.createObjectURL(normalized);
+}
+
+export type LauncherOpenUriOptions = {
+    /** Prefer a specific package (e.g. YouTube). Empty → any handler / chooser. */
+    packageName?: string;
+    /** When true (default) and no package, show the Android Open-with sheet. */
+    chooser?: boolean;
+    title?: string;
+    /** MIME for content:// (e.g. text/plain) — avoids defaulting to Files. */
+    mimeType?: string;
+};
+
+/** ACTION_VIEW for http(s)/deep links — browsers, YouTube, etc. */
+export async function launcherOpenUri(
+    uri: string,
+    options: LauncherOpenUriOptions = {}
+): Promise<boolean> {
+    const url = String(uri || "").trim();
+    if (!url) return false;
+    const packageName = String(options.packageName || "").trim();
+    const mimeType = String(options.mimeType || "").trim();
+    const chooser = options.chooser !== false;
+    const title = String(options.title || "Open with").trim() || "Open with";
+    const r = await invokeCwsPlatformIPC({
+        channel: "launcher:open-uri",
+        payload: {
+            uri: url,
+            url,
+            ...(packageName ? { packageName } : {}),
+            ...(mimeType ? { mimeType } : {}),
+            chooser,
+            title
+        }
+    });
+    return r.ok === true;
+}
+
+export type LauncherPendingPin = {
+    url?: string;
+    href?: string;
+    label?: string;
+    text?: string;
+    source?: string;
+    action?: string;
+    packageName?: string;
+    componentName?: string;
+    intentUri?: string;
+    shortcutId?: string;
+    mimeType?: string;
+    iconUrl?: string;
+    iconDisplay?: string;
+};
+
+/** Consume Share / VIEW / pin-shortcut queued before the WebView was ready. */
+export async function launcherConsumePendingPin(): Promise<LauncherPendingPin | null> {
+    const r = await invokeCwsPlatformIPC({ channel: "launcher:pending-pin" });
+    if (!r.ok) return null;
+    const echo = r.echo as { pin?: LauncherPendingPin } | undefined;
+    const pin = echo?.pin ?? (r as { pin?: LauncherPendingPin }).pin;
+    if (!pin || typeof pin !== "object") return null;
+    const url = String(pin.url || pin.href || pin.intentUri || "").trim();
+    const pkg = String(pin.packageName || "").trim();
+    if (!url && !pkg) return null;
+    return pin;
 }
