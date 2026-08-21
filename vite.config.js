@@ -1,8 +1,8 @@
 /*
  * Filename: vite.config.js
  * FullPath: apps/CWSP-shell/vite.config.js
- * Change date and time: 12.00.00_08.08.2026
- * Reason for changes: Copy default wallpaper.jpg/stock.jpg into host SPA outDir/assets.
+ * Change date and time: 19.55.00_21.08.2026
+ * Reason for changes: Alias @fest-lib/lure to source (stale dist missing FS root exports).
  */
 
 import { resolve } from "node:path";
@@ -28,8 +28,8 @@ const baseConfig = await importConfig(
 const ALL_VIEW_IDS = ["viewer", "editor", "workcenter", "explorer", "settings", "history", "home", "print", "airpad", "network"];
 const DEFAULT_VIEWS_BY_MODE = {
     // VDS md.u2re.space / /markdown/ — markdown workspace (viewer + workcenter tools).
-    markdown: ["viewer", "workcenter", "editor", "settings", "history", "home", "print"],
-    "cw-markdown": ["viewer", "workcenter", "editor", "settings", "history", "home", "print"],
+    markdown: ["viewer", "explorer", "workcenter", "editor", "settings", "history", "home", "print"],
+    "cw-markdown": ["viewer", "explorer", "workcenter", "editor", "settings", "history", "home", "print"],
     // VDS u2re.space main hub — full CWSP-shell environment.
     "vds-main": [...ALL_VIEW_IDS],
     shell: [...ALL_VIEW_IDS],
@@ -267,6 +267,10 @@ const createCapacitorLauncherConfig = async (mode) => {
         },
         { find: "fl-ui", replacement: flUiRoot },
         { find: "@fl-ui", replacement: flUiRoot },
+        {
+            find: /^@fest-lib\/lure$/,
+            replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/index.ts")
+        },
         {
             find: "@fest-lib/fl-ui",
             replacement: resolve(workspaceRoot, "modules/projects/fl.ui/src/index.ts")

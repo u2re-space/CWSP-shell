@@ -14,6 +14,12 @@ const config: CapacitorConfig = {
     android: {
         path: "platforms/android"
     },
+    plugins: {
+        Keyboard: {
+            resize: "none",
+            resizeOnFullScreen: false
+        }
+    },
     server: {
         androidScheme: process.env.CWSP_ANDROID_SCHEME || "https",
         cleartext: process.env.CWSP_ALLOW_CLEARTEXT === "1"

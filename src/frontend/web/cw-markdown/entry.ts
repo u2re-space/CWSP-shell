@@ -10,7 +10,7 @@
  * INVARIANT: history base auto-detects `/markdown` on IP mounts; md.u2re.space stays `/`.
  */
 
-const ENABLED = ["viewer", "workcenter", "editor", "settings", "history", "home", "print"] as const;
+const ENABLED = ["viewer", "explorer", "workcenter", "editor", "settings", "history", "home", "print"] as const;
 
 try {
     document.documentElement.dataset.cwspSurface = "cw-markdown";

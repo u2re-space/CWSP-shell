@@ -17,12 +17,26 @@ import {
     launcherLaunch,
     launcherList,
     launcherOpenUri,
+    widgetAttach,
+    widgetBind,
+    widgetDelete,
+    widgetDetach,
+    widgetHideAll,
+    widgetLayout,
+    widgetList,
     launcherRequestDefault,
     launcherStartShortcut,
-    launcherShortcutIcon
+    launcherShortcutIcon,
+    storageAllFilesStatus,
+    storageList,
+    storagePickSaf,
+    storageRequestAllFiles
 } from "com/routing/native/launcher-bridge";
 import { setLauncherBridgeForAppMenu } from "fl-ui/navigation/app-menu/AppMenu";
 import { setLauncherBridgeForSpeedDial } from "fl-ui/speed-dial/action-registry";
+import { setAndroidWidgetBridge } from "fl-ui/speed-dial/widgets";
+import { setExplorerStorageApi } from "fl-ui/explorer/storage-bridge";
+import { ensureDefaultFsBackends } from "fl-ui/explorer/path-router";
 
 const enabledViews = ["minimal", "home", "explorer", "settings", "viewer", "browser"] as const;
 
@@ -61,8 +75,33 @@ setLauncherBridgeForSpeedDial({
     launcherIconVariants,
     launcherIconPacks,
     launcherIconPackIcons,
-    launcherList
+    launcherList,
+    widgetList,
+    widgetBind,
+    widgetAttach,
+    widgetLayout,
+    widgetDetach,
+    widgetDelete,
+    widgetHideAll
 });
+
+setAndroidWidgetBridge({
+    widgetList,
+    widgetBind,
+    widgetAttach,
+    widgetLayout,
+    widgetDetach,
+    widgetDelete,
+    widgetHideAll
+});
+
+setExplorerStorageApi({
+    list: storageList,
+    pickSaf: storagePickSaf,
+    allFilesStatus: storageAllFilesStatus,
+    requestAllFiles: storageRequestAllFiles
+});
+ensureDefaultFsBackends();
 
 function showBootFailure(error: unknown): void {
     const message = error instanceof Error ? error.stack || error.message : String(error);

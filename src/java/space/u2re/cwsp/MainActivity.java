@@ -70,6 +70,13 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (CwsWidgetHost.dispatchActivityResult(requestCode, resultCode, data)) return;
+        if (CwsStorageHost.dispatchActivityResult(requestCode, resultCode, data)) return;
+        super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);

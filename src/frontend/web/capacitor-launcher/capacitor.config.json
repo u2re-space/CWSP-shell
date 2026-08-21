@@ -5,6 +5,12 @@
     "android": {
         "path": "platforms/android"
     },
+    "plugins": {
+        "Keyboard": {
+            "resize": "none",
+            "resizeOnFullScreen": false
+        }
+    },
     "server": {
         "androidScheme": "https",
         "cleartext": false

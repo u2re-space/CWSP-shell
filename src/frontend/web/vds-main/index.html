@@ -27,6 +27,25 @@
 </head>
 <body>
     <div id="app">Loading CWSP-shell…</div>
+    <script>
+        // WHY: /markdown is a host alias for viewer; stamp ?view= before the SPA boots.
+        (function () {
+            try {
+                var path = String(location.pathname || "");
+                var mount = path.match(/^\/(explorer|workcenter|markdown)(?:\/|$)/i);
+                if (!mount) return;
+                var prefix = mount[1].toLowerCase();
+                document.documentElement.dataset.cwspRouterBase = "/" + prefix;
+                document.documentElement.dataset.cwspDefaultView =
+                    prefix === "markdown" ? "viewer" : prefix;
+                if (prefix !== "markdown") return;
+                var url = new URL(location.href);
+                if (url.searchParams.get("view")) return;
+                url.searchParams.set("view", "viewer");
+                history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+            } catch (e) { /* ignore */ }
+        })();
+    </script>
     <script type="module" src="./entry.ts"></script>
 </body>
 </html>

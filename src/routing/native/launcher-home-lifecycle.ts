@@ -13,6 +13,7 @@ import {
 export type LauncherHomeLifecycleHooks = {
     navigateHome?: () => void;
     openAppMenu?: () => void;
+    openAppMenuPage?: () => void;
     closeAppMenu?: () => void;
     isAppMenuOpen?: () => boolean;
     focusSpeedDial?: () => void;
@@ -246,6 +247,9 @@ export function installLauncherHomeLifecycle(): void {
         handleBackPress: handleLauncherBackPress,
         openAppMenu: () => {
             hookSlot().get()?.openAppMenu?.();
+        },
+        openAppMenuPage: () => {
+            hookSlot().get()?.openAppMenuPage?.();
         },
         pinShortcut: (payload: LauncherPendingPin) => {
             void applyPinPayload(payload);

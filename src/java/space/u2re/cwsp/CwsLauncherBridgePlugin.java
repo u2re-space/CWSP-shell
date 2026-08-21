@@ -31,6 +31,9 @@ import java.util.regex.Pattern;
 @CapacitorPlugin(name = "CwsBridge")
 public class CwsLauncherBridgePlugin extends Plugin {
 
+    private CwsWidgetHost widgetHost;
+    private CwsStorageHost storageHost;
+
     private static final Pattern HTTP_URL = Pattern.compile(
             "https?://[^\\s<>\"'\\)\\]]+", Pattern.CASE_INSENSITIVE);
     private static final Pattern HTML_HREF = Pattern.compile(
@@ -59,10 +62,62 @@ public class CwsLauncherBridgePlugin extends Plugin {
         return px / density;
     }
 
+    @Override
+    public void load() {
+        widgetHost = new CwsWidgetHost(this);
+        storageHost = new CwsStorageHost(this);
+    }
+
+    @Override
+    protected void handleOnStart() {
+        super.handleOnStart();
+        if (widgetHost != null) widgetHost.startListening();
+    }
+
+    @Override
+    protected void handleOnStop() {
+        if (widgetHost != null) widgetHost.stopListening();
+        super.handleOnStop();
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        if (widgetHost != null) widgetHost.destroy();
+        super.handleOnDestroy();
+    }
+
+    @Override
+    protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
+        if (widgetHost != null
+                && (requestCode == CwsWidgetHost.REQ_BIND || requestCode == CwsWidgetHost.REQ_CONFIGURE)) {
+            widgetHost.onActivityResult(requestCode, resultCode, data);
+            return;
+        }
+        if (storageHost != null && requestCode == CwsStorageHost.REQ_SAF) {
+            storageHost.onActivityResult(requestCode, resultCode, data);
+            return;
+        }
+        super.handleOnActivityResult(requestCode, resultCode, data);
+    }
+
     @PluginMethod
     public void invoke(PluginCall call) {
         String channel = call.getString("channel", "");
         JSObject payload = call.getObject("payload", new JSObject());
+        if ("widget:bind".equals(channel)) {
+            if (widgetHost == null) widgetHost = new CwsWidgetHost(this);
+            String provider = payload != null ? payload.getString("provider", "") : "";
+            if (provider == null || provider.isEmpty()) {
+                provider = payload != null ? payload.getString("componentName", "") : "";
+            }
+            widgetHost.bind(call, provider);
+            return;
+        }
+        if ("storage:pick-saf".equals(channel) || "files:storage:pick-landing".equals(channel)) {
+            if (storageHost == null) storageHost = new CwsStorageHost(this);
+            storageHost.pickSaf(call);
+            return;
+        }
         JSObject result = dispatch(channel, payload);
         call.resolve(result);
     }
@@ -170,6 +225,72 @@ public class CwsLauncherBridgePlugin extends Plugin {
             case "clipboard:read-local":
             case "clipboard:paste-remote":
                 return clipboardRead(channel);
+            case "widget:list": {
+                if (widgetHost == null) widgetHost = new CwsWidgetHost(this);
+                widgetHost.startListening();
+                String query = payload != null ? payload.getString("query", "") : "";
+                return widgetHost.list(query);
+            }
+            case "widget:preview": {
+                if (widgetHost == null) widgetHost = new CwsWidgetHost(this);
+                String provider = payload != null ? payload.getString("provider", "") : "";
+                return widgetHost.preview(provider);
+            }
+            case "widget:attach": {
+                if (widgetHost == null) widgetHost = new CwsWidgetHost(this);
+                widgetHost.startListening();
+                return widgetHost.attach(payload);
+            }
+            case "widget:layout": {
+                if (widgetHost == null) return CwsWidgetHost.fail("widget:layout", "no host");
+                return widgetHost.layout(payload);
+            }
+            case "widget:detach": {
+                if (widgetHost == null) return CwsWidgetHost.base(true, "widget:detach");
+                Integer id = payload != null ? payload.getInteger("widgetId", 0) : 0;
+                return widgetHost.detach(id != null ? id : 0);
+            }
+            case "widget:delete": {
+                if (widgetHost == null) return CwsWidgetHost.base(true, "widget:delete");
+                Integer id = payload != null ? payload.getInteger("widgetId", 0) : 0;
+                return widgetHost.delete(id != null ? id : 0);
+            }
+            case "widget:hide": {
+                if (widgetHost == null) return CwsWidgetHost.base(true, "widget:hide");
+                return widgetHost.hideAll();
+            }
+            case "storage:list":
+            case "files:storage:status":
+            case "files:storage:show-paths": {
+                if (storageHost == null) storageHost = new CwsStorageHost(this);
+                if ("storage:list".equals(channel)) return storageHost.list(payload);
+                return storageHost.showPaths();
+            }
+            case "storage:all-files-status":
+            case "files:storage:permissions-status": {
+                if (storageHost == null) storageHost = new CwsStorageHost(this);
+                return storageHost.allFilesStatus();
+            }
+            case "storage:all-files-request":
+            case "files:storage:request-all-files": {
+                if (storageHost == null) storageHost = new CwsStorageHost(this);
+                return storageHost.requestAllFiles();
+            }
+            case "files:storage:request-media": {
+                if (storageHost == null) storageHost = new CwsStorageHost(this);
+                return storageHost.requestMedia();
+            }
+            case "files:storage:open-explorer": {
+                if (storageHost == null) storageHost = new CwsStorageHost(this);
+                return storageHost.openExplorer();
+            }
+            case "files:storage:share-readme": {
+                JSObject r = baseResult(true, channel);
+                JSObject echo = new JSObject();
+                echo.put("note", "Use Explorer /sdcard/ or /saf/ — README share is not in the launcher SKU.");
+                r.put("echo", echo);
+                return r;
+            }
             default: {
                 JSObject r = baseResult(false, channel);
                 JSObject echo = new JSObject();

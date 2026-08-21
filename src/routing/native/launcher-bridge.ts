@@ -281,3 +281,155 @@ export async function launcherConsumePendingPin(): Promise<LauncherPendingPin | 
     if (!url && !pkg) return null;
     return pin;
 }
+
+export type AndroidWidgetProvider = {
+    provider: string;
+    packageName: string;
+    className?: string;
+    label: string;
+    minWidth?: number;
+    minHeight?: number;
+    spanCols: number;
+    spanRows: number;
+    configure?: boolean;
+    preview?: string;
+};
+
+export type AndroidWidgetBindResult = AndroidWidgetProvider & {
+    widgetId: number;
+};
+
+export type AndroidWidgetBox = {
+    widgetId: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+};
+
+export async function widgetList(query?: string): Promise<AndroidWidgetProvider[]> {
+    const trimmed = query?.trim();
+    const r = await invokeCwsPlatformIPC({
+        channel: "widget:list",
+        payload: trimmed ? { query: trimmed } : {}
+    });
+    if (!r.ok) return [];
+    const echo = r.echo as { widgets?: AndroidWidgetProvider[] } | undefined;
+    const widgets = echo?.widgets ?? (r as { widgets?: AndroidWidgetProvider[] }).widgets;
+    return Array.isArray(widgets) ? widgets : [];
+}
+
+export async function widgetBind(provider: string): Promise<AndroidWidgetBindResult | null> {
+    const id = String(provider || "").trim();
+    if (!id) return null;
+    const r = await invokeCwsPlatformIPC({
+        channel: "widget:bind",
+        payload: { provider: id, componentName: id }
+    });
+    if (!r.ok) return null;
+    const echo = (r.echo || r) as Partial<AndroidWidgetBindResult>;
+    const widgetId = Number(echo.widgetId || (r as { widgetId?: number }).widgetId || 0);
+    if (!widgetId) return null;
+    return {
+        provider: String(echo.provider || id),
+        packageName: String(echo.packageName || ""),
+        label: String(echo.label || "Widget"),
+        spanCols: Math.max(1, Number(echo.spanCols) || 2),
+        spanRows: Math.max(1, Number(echo.spanRows) || 1),
+        widgetId,
+        preview: echo.preview ? String(echo.preview) : undefined
+    };
+}
+
+export async function widgetAttach(box: AndroidWidgetBox): Promise<boolean> {
+    if (!box?.widgetId) return false;
+    const r = await invokeCwsPlatformIPC({
+        channel: "widget:attach",
+        payload: box
+    });
+    return r.ok === true;
+}
+
+export async function widgetLayout(box: AndroidWidgetBox): Promise<boolean> {
+    if (!box?.widgetId) return false;
+    const r = await invokeCwsPlatformIPC({
+        channel: "widget:layout",
+        payload: box
+    });
+    return r.ok === true;
+}
+
+export async function widgetDetach(widgetId: number): Promise<boolean> {
+    const id = Number(widgetId) || 0;
+    if (!id) return false;
+    const r = await invokeCwsPlatformIPC({
+        channel: "widget:detach",
+        payload: { widgetId: id }
+    });
+    return r.ok === true;
+}
+
+export async function widgetDelete(widgetId: number): Promise<boolean> {
+    const id = Number(widgetId) || 0;
+    if (!id) return false;
+    const r = await invokeCwsPlatformIPC({
+        channel: "widget:delete",
+        payload: { widgetId: id }
+    });
+    return r.ok === true;
+}
+
+export async function widgetHideAll(): Promise<boolean> {
+    const r = await invokeCwsPlatformIPC({ channel: "widget:hide" });
+    return r.ok === true;
+}
+
+export type StorageListEntry = {
+    name: string;
+    kind: "file" | "directory";
+    path?: string;
+    size?: number;
+    lastModified?: number;
+};
+
+export async function storageList(
+    root: "sdcard" | "saf",
+    path = "/"
+): Promise<StorageListEntry[]> {
+    const r = await invokeCwsPlatformIPC({
+        channel: "storage:list",
+        payload: { root, path }
+    });
+    const echo = (r.echo || r) as { entries?: StorageListEntry[] };
+    return Array.isArray(echo.entries) ? echo.entries : [];
+}
+
+export async function storagePickSaf(): Promise<string> {
+    const r = await invokeCwsPlatformIPC({ channel: "storage:pick-saf" });
+    const echo = (r.echo || r) as { uri?: string; treeUri?: string; incomingDir?: string };
+    return String(echo.uri || echo.treeUri || echo.incomingDir || "");
+}
+
+export async function storageAllFilesStatus(): Promise<{
+    allFilesAccess: boolean;
+    runtimeGranted?: boolean;
+    note?: string;
+}> {
+    const r = await invokeCwsPlatformIPC({ channel: "storage:all-files-status" });
+    const echo = (r.echo || r) as {
+        allFilesAccess?: boolean;
+        runtimeGranted?: boolean;
+        note?: string;
+    };
+    return {
+        allFilesAccess: echo.allFilesAccess === true,
+        runtimeGranted: echo.runtimeGranted === true,
+        note: echo.note ? String(echo.note) : undefined
+    };
+}
+
+export async function storageRequestAllFiles(): Promise<boolean> {
+    const r = await invokeCwsPlatformIPC({ channel: "storage:all-files-request" });
+    const echo = (r.echo || r) as { opened?: boolean };
+    return r.ok === true || echo.opened === true;
+}

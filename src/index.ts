@@ -224,8 +224,22 @@ export default async function index(mountElement: HTMLElement) {
             getSavedShellPreference
         } = await import("shells/boot");
 
-        const isValidViewPath = (path: string): path is ViewId =>
-            (VALID_VIEWS as readonly string[]).includes(path);
+        const VIEW_PATH_ALIASES: Record<string, ViewId> = {
+            markdown: "viewer",
+            document: "viewer",
+            md: "viewer",
+            files: "explorer",
+            fm: "explorer"
+        };
+        const resolveViewPath = (path: string): ViewId | null => {
+            const raw = String(path || "").trim().toLowerCase();
+            if (!raw) return null;
+            const aliased = VIEW_PATH_ALIASES[raw];
+            if (aliased && (VALID_VIEWS as readonly string[]).includes(aliased)) return aliased;
+            if ((VALID_VIEWS as readonly string[]).includes(raw)) return raw as ViewId;
+            return null;
+        };
+        const isValidViewPath = (path: string): path is ViewId => resolveViewPath(path) != null;
 
         // Initialize PWA features (non-blocking)
         const pwaPromise = initPWA();
@@ -287,14 +301,21 @@ export default async function index(mountElement: HTMLElement) {
         // boots Network status this way; also matches the minimal-shell demo convention).
         const queryViewRaw = urlParams.get("view");
         const queryView: ViewId | null =
-            queryViewRaw && isValidViewPath(queryViewRaw) ? pickEnabledView(queryViewRaw as ViewId, "home") : null;
+            queryViewRaw && resolveViewPath(queryViewRaw)
+                ? pickEnabledView(resolveViewPath(queryViewRaw) as ViewId, "home")
+                : null;
+        const datasetView = resolveViewPath(
+            String(document.documentElement.dataset.cwspDefaultView || "")
+        );
         const explicitRequestedView: ViewId | null = queryView
             ? queryView
             : isLegacyViewRoute
-                ? pickEnabledView(pathname as ViewId, "home")
-                : (sharedFlag === "1" || sharedFlag === "true" || markdownContent)
-                    ? pickEnabledView("viewer", "home")
-                    : null;
+                ? pickEnabledView((resolveViewPath(pathname) || pathname) as ViewId, "home")
+                : datasetView
+                    ? pickEnabledView(datasetView, "home")
+                    : (sharedFlag === "1" || sharedFlag === "true" || markdownContent)
+                        ? pickEnabledView("viewer", "home")
+                        : null;
         // WHY: u2re.space (`vds-main`) always boots environment — never honor ?shell=minimal.
         const forceEnvironmentSurface =
             document.documentElement.dataset.cwspSurface === "vds-main";

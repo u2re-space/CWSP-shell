@@ -27,6 +27,15 @@ const ENABLED = [
 try {
     document.documentElement.dataset.cwspSurface = "vds-main";
     document.documentElement.dataset.cwspEnabledViews = ENABLED.join(",");
+    const mount = String(location.pathname || "").match(
+        /^\/(explorer|workcenter|markdown)(?:\/|$)/i
+    );
+    if (mount) {
+        const prefix = mount[1].toLowerCase();
+        document.documentElement.dataset.cwspRouterBase = `/${prefix}`;
+        document.documentElement.dataset.cwspDefaultView =
+            prefix === "markdown" ? "viewer" : prefix;
+    }
     // WHY: stamp preference + URL before index boot so `?shell=minimal` bookmarks cannot win.
     try {
         localStorage.setItem("rs-boot-shell", "environment");
