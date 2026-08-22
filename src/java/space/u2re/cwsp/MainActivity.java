@@ -1,8 +1,8 @@
 /*
  * Filename: MainActivity.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/MainActivity.java
- * Change date and time: 17.25.00_22.08.2026
- * Reason for changes: Transparent Android 3-button navbar (no contrast scrim) over wallpaper.
+ * Change date and time: 21.40.00_22.08.2026
+ * Reason for changes: Unlock display / WebView refresh above Android 15 default 60 Hz.
  */
 
 package space.u2re.cwsp;
@@ -47,6 +47,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CwsLauncherBridgePlugin.class);
         super.onCreate(savedInstanceState);
         try {
+            DisplayRefreshUnlock.applyToWindow(this);
             applyTransparentSystemBars();
             getWindow().setBackgroundDrawableResource(android.R.color.transparent);
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER);
@@ -61,13 +62,29 @@ public class MainActivity extends BridgeActivity {
     public void onStart() {
         super.onStart();
         applyTransparentSystemBars();
+        DisplayRefreshUnlock.applyToWindow(this);
         try {
             Bridge bridge = getBridge();
             if (bridge != null && bridge.getWebView() != null) {
                 bridge.getWebView().setBackgroundColor(Color.TRANSPARENT);
+                DisplayRefreshUnlock.applyToWebView(bridge.getWebView());
             }
         } catch (Exception e) {
             Log.w(TAG, "transparent WebView failed", e);
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        DisplayRefreshUnlock.applyToWindow(this);
+        try {
+            Bridge bridge = getBridge();
+            if (bridge != null && bridge.getWebView() != null) {
+                DisplayRefreshUnlock.applyToWebView(bridge.getWebView());
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "refresh unlock onResume failed", e);
         }
     }
 

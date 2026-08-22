@@ -12,6 +12,7 @@
 
     <application
         android:label="CWSP"
+        android:hardwareAccelerated="true"
         android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security_config"
         android:allowBackup="false">

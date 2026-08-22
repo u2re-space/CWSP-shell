@@ -1,8 +1,8 @@
 /*
  * Filename: CwsLauncherBridgePlugin.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/CwsLauncherBridgePlugin.java
- * Change date and time: 18.05.00_22.08.2026
- * Reason for changes: Report Material You accent + WallpaperColors so Appearance can seed --base-color.
+ * Change date and time: 21.40.00_22.08.2026
+ * Reason for changes: Report displayRefreshHz after unlocking high-refresh window modes.
  */
 
 package space.u2re.cwsp;
@@ -58,6 +58,11 @@ public class CwsLauncherBridgePlugin extends Plugin {
         if (!TextUtils.isEmpty(accent)) info.put("accentColor", accent);
         String wallpaper = wallpaperPrimaryHex(getContext());
         if (!TextUtils.isEmpty(wallpaper)) info.put("wallpaperColor", wallpaper);
+        try {
+            info.put("displayRefreshHz", DisplayRefreshUnlock.peekMaxRefreshHz(getContext()));
+        } catch (Exception ignored) {
+            /* ignore */
+        }
         call.resolve(info);
     }
 

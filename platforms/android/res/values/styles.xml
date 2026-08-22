@@ -21,6 +21,8 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:navigationBarDividerColor">@android:color/transparent</item>
+        <!-- WHY: Android 15 ARR defaults windows to 60 Hz unless this is false. -->
+        <item name="android:windowIsFrameRatePowerSavingsBalanced">false</item>
     </style>
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
@@ -28,6 +30,7 @@
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
         <item name="windowSplashScreenBackground">@color/colorPrimary</item>
+        <item name="android:windowIsFrameRatePowerSavingsBalanced">false</item>
     </style>
 
     <!-- Share overlay: non-floating activity (Dialog+floating breaks Chromium SEND extras / clip focus). -->
