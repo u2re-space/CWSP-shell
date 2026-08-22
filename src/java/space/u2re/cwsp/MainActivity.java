@@ -1,8 +1,8 @@
 /*
  * Filename: MainActivity.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/MainActivity.java
- * Change date and time: 21.20.00_20.08.2026
- * Reason for changes: Accept system pin-shortcut (Material Files) + Share/VIEW → Speed Dial.
+ * Change date and time: 17.25.00_22.08.2026
+ * Reason for changes: Transparent Android 3-button navbar (no contrast scrim) over wallpaper.
  */
 
 package space.u2re.cwsp;
@@ -21,6 +21,7 @@ import android.util.Log;
 import androidx.activity.OnBackPressedCallback;
 import androidx.core.splashscreen.SplashScreen;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
@@ -46,7 +47,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CwsLauncherBridgePlugin.class);
         super.onCreate(savedInstanceState);
         try {
-            WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+            applyTransparentSystemBars();
             getWindow().setBackgroundDrawableResource(android.R.color.transparent);
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER);
         } catch (Exception e) {
@@ -59,6 +60,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onStart() {
         super.onStart();
+        applyTransparentSystemBars();
         try {
             Bridge bridge = getBridge();
             if (bridge != null && bridge.getWebView() != null) {
@@ -66,6 +68,42 @@ public class MainActivity extends BridgeActivity {
             }
         } catch (Exception e) {
             Log.w(TAG, "transparent WebView failed", e);
+        }
+    }
+
+    /**
+     * WHY: API 29+ `enforceNavigationBarContrast` paints an opaque scrim on 3-button nav
+     * even when `navigationBarColor` is transparent — wallpaper never shows through.
+     */
+    private void applyTransparentSystemBars() {
+        android.view.Window window = getWindow();
+        if (window == null) return;
+        try {
+            WindowCompat.setDecorFitsSystemWindows(window, false);
+            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            window.setStatusBarColor(Color.TRANSPARENT);
+            window.setNavigationBarColor(Color.TRANSPARENT);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                WindowManager.LayoutParams lp = window.getAttributes();
+                lp.layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                window.setAttributes(lp);
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                window.setNavigationBarDividerColor(Color.TRANSPARENT);
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.setNavigationBarContrastEnforced(false);
+                window.setStatusBarContrastEnforced(false);
+            }
+            WindowInsetsControllerCompat insets =
+                    WindowCompat.getInsetsController(window, window.getDecorView());
+            if (insets != null) {
+                insets.setAppearanceLightStatusBars(false);
+                insets.setAppearanceLightNavigationBars(false);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "transparent system bars failed", e);
         }
     }
 
