@@ -1,8 +1,10 @@
 /*
  * Filename: DisplayRefreshUnlock.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/DisplayRefreshUnlock.java
- * Change date and time: 21.40.00_22.08.2026
- * Reason for changes: Unlock display / WebView refresh above the Android 15 default 60 Hz.
+ * Change date and time: 22.18.00_22.08.2026
+ * Reason for changes: FIND hub for Capacitor / WebView high-refresh unlock.
+ * FIND:high-refresh
+ * TAG:fps,webview
  */
 
 package space.u2re.cwsp;
