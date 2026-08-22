@@ -18,6 +18,11 @@ const config: CapacitorConfig = {
         Keyboard: {
             resize: "none",
             resizeOnFullScreen: false
+        },
+        // WHY: Capacitor 8 SystemBars pads a slab on API 35+; Java hides the 3-button nav.
+        SystemBars: {
+            style: "DARK",
+            insetsHandling: "disable"
         }
     },
     server: {

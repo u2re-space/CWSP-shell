@@ -1,10 +1,11 @@
 /*
  * Filename: entry.ts
  * FullPath: apps/CWSP-shell/src/frontend/web/capacitor-launcher/entry.ts
- * Change date and time: 18.35.00_19.08.2026
- * Reason for changes: CWSP Launcher Capacitor — environment-shell home desktop boot.
+ * Change date and time: 22.56.00_22.08.2026
+ * Reason for changes: Hide Capacitor 8 NavigationBar on the launcher SKU.
  */
 
+import { SystemBarType, SystemBars } from "@capacitor/core";
 import { bootEnvironment } from "boot/BootLoader";
 import { installLauncherHomeLifecycle } from "com/routing/native/launcher-home-lifecycle";
 import { readClipboardTextFromDevice } from "com/routing/native/clipboard-device";
@@ -44,6 +45,10 @@ document.documentElement.dataset.cwspShellRole = "launcher";
 document.documentElement.dataset.cwspNativeShell = "capacitor";
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
 document.documentElement.dataset.cwspDefaultView = "home";
+
+void SystemBars.hide({ bar: SystemBarType.NavigationBar }).catch(() => {
+    /* native-only; web preview ignores */
+});
 
 /** WHY: WebView clipboard.readText is empty/denied on Android; Speed Dial Paste uses this hook. */
 (globalThis as Record<string, unknown>).__CWSP_READ_CLIPBOARD_TEXT__ = () =>

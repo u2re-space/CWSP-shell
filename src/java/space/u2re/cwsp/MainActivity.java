@@ -1,8 +1,8 @@
 /*
  * Filename: MainActivity.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/MainActivity.java
- * Change date and time: 21.40.00_22.08.2026
- * Reason for changes: Unlock display / WebView refresh above Android 15 default 60 Hz.
+ * Change date and time: 22.56.00_22.08.2026
+ * Reason for changes: Hide 3-button nav (swipe to peek); keep wallpaper-transparent chrome.
  */
 
 package space.u2re.cwsp;
@@ -18,9 +18,12 @@ import android.os.Parcelable;
 import android.view.WindowManager;
 import android.util.Log;
 
+import androidx.activity.EdgeToEdge;
 import androidx.activity.OnBackPressedCallback;
+import androidx.activity.SystemBarStyle;
 import androidx.core.splashscreen.SplashScreen;
 import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.Bridge;
@@ -45,7 +48,16 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         SplashScreen.installSplashScreen(this);
         registerPlugin(CwsLauncherBridgePlugin.class);
+        try {
+            EdgeToEdge.enable(
+                    this,
+                    SystemBarStyle.dark(Color.TRANSPARENT),
+                    SystemBarStyle.dark(Color.TRANSPARENT));
+        } catch (Exception e) {
+            Log.w(TAG, "EdgeToEdge.enable failed", e);
+        }
         super.onCreate(savedInstanceState);
+        hideNativeTitleBar();
         try {
             DisplayRefreshUnlock.applyToWindow(this);
             applyTransparentSystemBars();
@@ -61,6 +73,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onStart() {
         super.onStart();
+        hideNativeTitleBar();
         applyTransparentSystemBars();
         DisplayRefreshUnlock.applyToWindow(this);
         try {
@@ -77,6 +90,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        applyTransparentSystemBars();
         DisplayRefreshUnlock.applyToWindow(this);
         try {
             Bridge bridge = getBridge();
@@ -88,9 +102,21 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    /** WHY: Application AppTheme was DarkActionBar — splash/EdgeToEdge can revive a title strip. */
+    private void hideNativeTitleBar() {
+        try {
+            setTitle("");
+            androidx.appcompat.app.ActionBar bar = getSupportActionBar();
+            if (bar != null) bar.hide();
+        } catch (Exception e) {
+            Log.w(TAG, "hide title bar failed", e);
+        }
+    }
+
     /**
-     * WHY: API 29+ `enforceNavigationBarContrast` paints an opaque scrim on 3-button nav
-     * even when `navigationBarColor` is transparent — wallpaper never shows through.
+     * FIND:navbar
+     * WHY: Transparent 3-button nav still reserves a slab. Hide it (swipe to peek).
+     * Wallpaper stays visible via FLAG_SHOW_WALLPAPER + transparent WebView.
      */
     private void applyTransparentSystemBars() {
         android.view.Window window = getWindow();
@@ -118,10 +144,19 @@ public class MainActivity extends BridgeActivity {
             if (insets != null) {
                 insets.setAppearanceLightStatusBars(false);
                 insets.setAppearanceLightNavigationBars(false);
+                insets.setSystemBarsBehavior(
+                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                insets.hide(WindowInsetsCompat.Type.navigationBars());
             }
         } catch (Exception e) {
             Log.w(TAG, "transparent system bars failed", e);
         }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) applyTransparentSystemBars();
     }
 
     @Override
