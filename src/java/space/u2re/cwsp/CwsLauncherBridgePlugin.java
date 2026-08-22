@@ -1,18 +1,23 @@
 /*
  * Filename: CwsLauncherBridgePlugin.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/CwsLauncherBridgePlugin.java
- * Change date and time: 20.30.00_20.08.2026
- * Reason for changes: clipboard:read-local for Paste shortcut — Chrome Copy link URI/Intent.
+ * Change date and time: 18.05.00_22.08.2026
+ * Reason for changes: Report Material You accent + WallpaperColors so Appearance can seed --base-color.
  */
 
 package space.u2re.cwsp;
 
+import android.app.WallpaperColors;
+import android.app.WallpaperManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.text.TextUtils;
+import android.util.TypedValue;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -49,7 +54,76 @@ public class CwsLauncherBridgePlugin extends Plugin {
         info.put("sku", "launcher");
         info.put("statusBarHeightCss", systemBarHeightCss(getContext(), "status_bar_height"));
         info.put("navigationBarHeightCss", systemBarHeightCss(getContext(), "navigation_bar_height"));
+        String accent = materialYouAccentHex(getContext());
+        if (!TextUtils.isEmpty(accent)) info.put("accentColor", accent);
+        String wallpaper = wallpaperPrimaryHex(getContext());
+        if (!TextUtils.isEmpty(wallpaper)) info.put("wallpaperColor", wallpaper);
         call.resolve(info);
+    }
+
+    /** Material You `system_accent1_*` (API 31+), then theme accent, then wallpaper primary. */
+    private static String materialYouAccentHex(Context context) {
+        if (context == null) return "";
+        if (Build.VERSION.SDK_INT >= 31) {
+            int[] ids = {
+                    android.R.color.system_accent1_200,
+                    android.R.color.system_accent1_400,
+                    android.R.color.system_accent1_100
+            };
+            for (int id : ids) {
+                try {
+                    String hex = colorToHex(context.getResources().getColor(id, context.getTheme()));
+                    if (!isGenericAccentHex(hex)) return hex;
+                } catch (Exception ignored) {
+                    /* OEM without this tone */
+                }
+            }
+        }
+        try {
+            TypedValue tv = new TypedValue();
+            if (context.getTheme().resolveAttribute(android.R.attr.colorAccent, tv, true)) {
+                int color = 0;
+                if (tv.type >= TypedValue.TYPE_FIRST_COLOR_INT && tv.type <= TypedValue.TYPE_LAST_COLOR_INT) {
+                    color = tv.data;
+                } else if (tv.resourceId != 0) {
+                    color = context.getResources().getColor(tv.resourceId, context.getTheme());
+                }
+                String hex = colorToHex(color);
+                if (!isGenericAccentHex(hex)) return hex;
+            }
+        } catch (Exception ignored) {
+            /* no theme accent */
+        }
+        return wallpaperPrimaryHex(context);
+    }
+
+    private static String wallpaperPrimaryHex(Context context) {
+        if (context == null || Build.VERSION.SDK_INT < 27) return "";
+        try {
+            WallpaperManager wm = WallpaperManager.getInstance(context);
+            WallpaperColors colors = wm.getWallpaperColors(WallpaperManager.FLAG_SYSTEM);
+            if (colors == null || colors.getPrimaryColor() == null) return "";
+            String hex = colorToHex(colors.getPrimaryColor().toArgb());
+            return isGenericAccentHex(hex) ? "" : hex;
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static String colorToHex(int color) {
+        return String.format(
+                Locale.US,
+                "#%02x%02x%02x",
+                Color.red(color),
+                Color.green(color),
+                Color.blue(color)
+        );
+    }
+
+    private static boolean isGenericAccentHex(String hex) {
+        if (hex == null || hex.isEmpty()) return true;
+        String n = hex.toLowerCase(Locale.US);
+        return "#000000".equals(n) || "#ffffff".equals(n) || "#0000ee".equals(n) || "#0000ff".equals(n);
     }
 
     private static double systemBarHeightCss(Context context, String dimenName) {
