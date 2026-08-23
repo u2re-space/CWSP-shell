@@ -38,7 +38,7 @@ public class InstallShortcutReceiver extends BroadcastReceiver {
                 return;
             }
             Log.i(TAG, "INSTALL_SHORTCUT broadcast — " + pin.toString());
-            LauncherCoordinator.stashPendingPin(pin);
+            LauncherCoordinator.stashPendingPin(context, pin);
             Intent home = new Intent(context, MainActivity.class);
             home.setAction(Intent.ACTION_MAIN);
             home.addCategory(Intent.CATEGORY_HOME);

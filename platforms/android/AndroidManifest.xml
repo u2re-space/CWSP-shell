@@ -65,12 +65,24 @@
                 <data android:scheme="http" />
                 <data android:scheme="https" />
             </intent-filter>
-            <!-- System pin-shortcut confirmation (Material Files, requestPinShortcut) -->
+        </activity>
+
+        <!--
+          WHY: MainActivity is singleTask HOME — CONFIRM_PIN_SHORTCUT was dropped /
+          getPinItemRequest returned null, so Files "Create shortcut" did nothing
+          once the OS already marked the shortcut pinned.
+        -->
+        <activity
+            android:name="space.u2re.cwsp.PinShortcutActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="">
             <intent-filter>
                 <action android:name="android.content.pm.action.CONFIRM_PIN_SHORTCUT" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-            <!-- Legacy home-shortcut install from older apps -->
             <intent-filter>
                 <action android:name="com.android.launcher.action.INSTALL_SHORTCUT" />
                 <category android:name="android.intent.category.DEFAULT" />

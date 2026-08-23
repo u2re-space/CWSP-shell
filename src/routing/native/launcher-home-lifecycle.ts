@@ -1,12 +1,14 @@
 /*
  * Filename: launcher-home-lifecycle.ts
  * FullPath: apps/CWSP-shell/src/routing/native/launcher-home-lifecycle.ts
- * Change date and time: 20.05.00_20.08.2026
- * Reason for changes: CWSP Launcher — HOME + Share/VIEW pin-to-desktop lifecycle.
+ * Change date and time: 22.06.00_23.08.2026
+ * Reason for changes: Pin no longer awaits hung OPFS getDirectory before addSpeedDialItem.
  */
 
 import {
+    launcherAckPendingPin,
     launcherConsumePendingPin,
+    launcherListPinnedShortcuts,
     type LauncherPendingPin
 } from "com/routing/native/launcher-bridge";
 
@@ -49,12 +51,11 @@ export function registerLauncherHomeLifecycleHooks(hooks: LauncherHomeLifecycleH
 }
 
 export function focusLauncherSpeedDial(): void {
-    const hooks = hookSlot().get();
-    if (typeof hooks?.focusSpeedDial === "function") {
-        hooks.focusSpeedDial();
-        return;
-    }
-    const home = document.querySelector<HTMLElement>("#home");
+    /* WHY: do not call hooks.focusSpeedDial — environment-shell wired that
+     * back to this function and HOME/pin overflowed the stack. */
+    const home =
+        document.querySelector<HTMLElement>("#home") ||
+        document.querySelector<HTMLElement>(".speed-dial-root");
     if (!home) return;
     try {
         home.focus({ preventScroll: true });
@@ -92,11 +93,19 @@ export function isLauncherHomeVisible(): boolean {
     return Boolean(document.querySelector(".env-shell-home-mount"));
 }
 
+let homePressDepth = 0;
+
 export function handleLauncherHomePressed(): void {
-    const hooks = hookSlot().get();
-    hooks?.closeAppMenu?.();
-    hooks?.navigateHome?.();
-    focusLauncherSpeedDial();
+    if (homePressDepth > 0) return;
+    homePressDepth += 1;
+    try {
+        const hooks = hookSlot().get();
+        hooks?.closeAppMenu?.();
+        hooks?.navigateHome?.();
+        focusLauncherSpeedDial();
+    } finally {
+        homePressDepth -= 1;
+    }
 }
 
 export function handleLauncherBackPress(): boolean {
@@ -125,75 +134,88 @@ export function handleLauncherBackPress(): boolean {
 let lastPinKey = "";
 let lastPinAt = 0;
 
+function isUnsafePinHref(raw: string): boolean {
+    return /^(intent:|android-app:|data:|blob:)/i.test(String(raw || "").trim());
+}
+
 async function applyPinPayload(raw: LauncherPendingPin | Record<string, unknown> | null | undefined): Promise<boolean> {
     if (!raw || typeof raw !== "object") return false;
-    const url = String(
+    const incomingUrl = String(
         (raw as LauncherPendingPin).url ||
             (raw as LauncherPendingPin).href ||
-            (raw as LauncherPendingPin).intentUri ||
             ""
     ).trim();
+    /* WHY: intent: URIs must not become href — they skipped launch-shortcut and crashed persist. */
+    const url = incomingUrl && !isUnsafePinHref(incomingUrl) ? incomingUrl : "";
     const pkg = String((raw as LauncherPendingPin).packageName || "").trim();
     const shortcutId = String((raw as LauncherPendingPin).shortcutId || "").trim();
-    if (!url && !pkg) return false;
+    if (!url && !pkg && !shortcutId) {
+        console.warn("[launcher] pin ignored: empty payload");
+        return false;
+    }
     const key = `${url}::${pkg}::${shortcutId}::${String((raw as LauncherPendingPin).label || "")}`;
     const now = Date.now();
     /* WHY: only dedupe successful pins — failed attempts must retry (boot race). */
-    if (key === lastPinKey && now - lastPinAt < 2500) return false;
+    if (key === lastPinKey && now - lastPinAt < 2500) {
+        console.warn("[launcher] pin deduped", key);
+        return false;
+    }
 
     try {
         const mod = await import("fl-ui/speed-dial/launcher-state");
-        /* WHY: wait for OPFS hydrate so pin is not spliced away mid-boot. */
+        /* WHY: never await linkStoreReady/OPFS here — getDirectory() hangs on Cap WebView,
+         * so the tile never reached addSpeedDialItem. Dirty flags already skip hydrate splice. */
         try {
-            await mod.linkStoreReady?.();
+            const pages = await import("fl-ui/speed-dial/workspace-pages");
+            pages.bootWorkspacePages?.();
         } catch {
-            /* OPFS optional */
+            /* pages optional on non-home hosts */
         }
+        const actionHint = String((raw as LauncherPendingPin).action || "").trim();
         const pinArgs = {
             url,
             href: url,
-            intentUri: String((raw as LauncherPendingPin).intentUri || "").trim() || undefined,
             label: String((raw as LauncherPendingPin).label || "").trim() || undefined,
-            text: String((raw as LauncherPendingPin).text || "").trim() || undefined,
             source: String((raw as LauncherPendingPin).source || "intent"),
-            action: String((raw as LauncherPendingPin).action || "").trim() || undefined,
+            action:
+                shortcutId && pkg && actionHint !== "launch-app"
+                    ? "launch-shortcut"
+                    : actionHint || undefined,
             packageName: pkg || undefined,
             componentName: String((raw as LauncherPendingPin).componentName || "").trim() || undefined,
             mimeType: String((raw as LauncherPendingPin).mimeType || "").trim() || undefined,
-            shortcutId: String((raw as LauncherPendingPin).shortcutId || "").trim() || undefined,
-            iconUrl: String((raw as LauncherPendingPin & { iconUrl?: string }).iconUrl || "").trim() || undefined,
+            shortcutId: shortcutId || undefined,
             iconDisplay: String((raw as LauncherPendingPin & { iconDisplay?: string }).iconDisplay || "").trim() || undefined
         };
         let pinned = mod.pinSpeedDialLinkFromIntent(pinArgs);
-        if (!pinned) return false;
-        try {
-            await mod.flushSpeedDialLinkStore?.();
-        } catch {
-            /* LS already written by addSpeedDialItem */
+        if (!pinned) {
+            console.warn("[launcher] pinSpeedDial returned null", pinArgs);
+            return false;
         }
-        /* WHY: dual-graph hydrate could still race; re-pin once if the tile vanished. */
-        const pinnedId = String(pinned.id || "");
-        if (pinnedId) {
-            await new Promise((r) => setTimeout(r, 320));
-            if (!mod.hasSpeedDialItemId?.(pinnedId)) {
-                console.warn("[launcher] pin tile missing after hydrate race — re-pinning");
-                pinned = mod.pinSpeedDialLinkFromIntent(pinArgs);
-                try {
-                    await mod.flushSpeedDialLinkStore?.();
-                } catch {
-                    /* ignore */
-                }
-            }
-        }
-        if (!pinned) return false;
         lastPinKey = key;
         lastPinAt = Date.now();
-        handleLauncherHomePressed();
-        try {
-            const toast = await import("fl-ui/speed-dial/toast");
-            toast.showSuccess?.(`Added “${String(pinned.label?.value || pinned.label || "shortcut")}” to desktop`);
-        } catch {
-            /* toast optional */
+        const silent = String((raw as LauncherPendingPin).source || "") === "pinned-import";
+        if (!silent) {
+            try {
+                await launcherAckPendingPin();
+            } catch {
+                /* retry consume will no-op once lastPinKey is set */
+            }
+        }
+        void mod.flushSpeedDialLinkStore?.();
+        console.info(
+            "[launcher] pinned",
+            String(pinned.id || ""),
+            String(pinArgs.label || pinArgs.shortcutId || "")
+        );
+        if (!silent) handleLauncherHomePressed();
+        if (!silent) {
+            try {
+                const toast = await import("fl-ui/speed-dial/toast");
+                toast.showSuccess?.(`Added “${String(pinned.label?.value || pinned.label || "shortcut")}” to desktop`);
+            } catch {
+                /* toast optional */
+            }
         }
         return true;
     } catch (e) {
@@ -202,18 +224,23 @@ async function applyPinPayload(raw: LauncherPendingPin | Record<string, unknown>
     }
 }
 
-function parsePinEventDetail(detail: unknown): LauncherPendingPin | null {
-    if (!detail) return null;
-    if (typeof detail === "string") {
-        try {
-            const parsed = JSON.parse(detail);
-            return parsed && typeof parsed === "object" ? (parsed as LauncherPendingPin) : null;
-        } catch {
-            return null;
+async function importPinnedShortcuts(): Promise<void> {
+    const g = globalThis as { __CWSP_PINNED_IMPORT_V1__?: boolean };
+    if (g.__CWSP_PINNED_IMPORT_V1__) return;
+    g.__CWSP_PINNED_IMPORT_V1__ = true;
+    try {
+        const pins = await launcherListPinnedShortcuts();
+        if (!pins.length) return;
+        for (const pin of pins) {
+            await applyPinPayload({
+                ...pin,
+                action: "launch-shortcut",
+                source: "pinned-import"
+            });
         }
+    } catch (e) {
+        console.warn("[launcher] import pinned failed", e);
     }
-    if (typeof detail === "object") return detail as LauncherPendingPin;
-    return null;
 }
 
 async function consumePendingPinSoon(): Promise<void> {
@@ -221,8 +248,8 @@ async function consumePendingPinSoon(): Promise<void> {
         try {
             const pin = await launcherConsumePendingPin();
             if (pin) await applyPinPayload(pin);
-        } catch {
-            /* ignore */
+        } catch (e) {
+            console.warn("[launcher] consume pending pin failed", e);
         }
     };
     await tryOnce();
@@ -261,11 +288,11 @@ export function installLauncherHomeLifecycle(): void {
         handleLauncherHomePressed();
     });
 
-    window.addEventListener("launcherPinShortcut", ((ev: Event) => {
-        const detail = (ev as CustomEvent).detail ?? (ev as { data?: unknown }).data;
-        const pin = parsePinEventDetail(detail);
-        void applyPinPayload(pin);
-    }) as EventListener);
+    window.addEventListener("launcherPinShortcut", () => {
+        /* Event is only a ping — payload stays in native stash (too large for evaluateJavascript). */
+        void consumePendingPinSoon();
+    });
 
     void consumePendingPinSoon();
+    void importPinnedShortcuts();
 }

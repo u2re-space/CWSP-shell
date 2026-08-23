@@ -299,7 +299,11 @@ public class CwsLauncherBridgePlugin extends Plugin {
                         getContext(), uri, packageName, chooser, chooserTitle, mimeType);
             }
             case "launcher:pending-pin":
-                return LauncherCoordinator.consumePendingPin();
+                return LauncherCoordinator.consumePendingPin(getContext());
+            case "launcher:ack-pin":
+                return LauncherCoordinator.ackPendingPinResult(getContext());
+            case "launcher:list-pinned":
+                return LauncherCoordinator.listPinnedShortcuts(getContext());
             /* WHY: Paste shortcut uses clipboard-device → clipboard:read-local. Slim launcher
              * bridge previously returned unhandled; Cap Clipboard.getText() is empty for many
              * Chrome "Copy link" clips (URI/Intent, not plain CharSequence). */

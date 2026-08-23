@@ -269,17 +269,36 @@ export type LauncherPendingPin = {
     iconDisplay?: string;
 };
 
-/** Consume Share / VIEW / pin-shortcut queued before the WebView was ready. */
+/** Peek Share / VIEW / pin-shortcut queued before the WebView was ready. */
 export async function launcherConsumePendingPin(): Promise<LauncherPendingPin | null> {
     const r = await invokeCwsPlatformIPC({ channel: "launcher:pending-pin" });
     if (!r.ok) return null;
     const echo = r.echo as { pin?: LauncherPendingPin } | undefined;
     const pin = echo?.pin ?? (r as { pin?: LauncherPendingPin }).pin;
     if (!pin || typeof pin !== "object") return null;
-    const url = String(pin.url || pin.href || pin.intentUri || "").trim();
+    const url = String(pin.url || pin.href || "").trim();
     const pkg = String(pin.packageName || "").trim();
-    if (!url && !pkg) return null;
+    const shortcutId = String(pin.shortcutId || "").trim();
+    if (!url && !pkg && !shortcutId) return null;
     return pin;
+}
+
+/** Shortcuts the OS already pinned to this launcher (Files will not re-send them). */
+export async function launcherListPinnedShortcuts(): Promise<LauncherPendingPin[]> {
+    const r = await invokeCwsPlatformIPC({ channel: "launcher:list-pinned" });
+    if (!r.ok) return [];
+    const echo = r.echo as { shortcuts?: LauncherPendingPin[] } | undefined;
+    const list = echo?.shortcuts ?? (r as { shortcuts?: LauncherPendingPin[] }).shortcuts;
+    return Array.isArray(list) ? list : [];
+}
+
+/** Drop the native stash after the Speed Dial tile is actually added. */
+export async function launcherAckPendingPin(): Promise<void> {
+    try {
+        await invokeCwsPlatformIPC({ channel: "launcher:ack-pin" });
+    } catch {
+        /* stash retries on next consume */
+    }
 }
 
 export type AndroidWidgetProvider = {

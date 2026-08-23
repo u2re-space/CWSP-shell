@@ -1,8 +1,8 @@
 /*
  * Filename: LauncherCoordinator.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/LauncherCoordinator.java
- * Change date and time: 18.50.00_19.08.2026
- * Reason for changes: PackageManager fallback when not default HOME — list/launch/icon still work.
+ * Change date and time: 21.42.00_23.08.2026
+ * Reason for changes: Slim whitelist pin + prefs stash so WebView crash cannot drop the tile.
  */
 
 package space.u2re.cwsp;
@@ -16,6 +16,7 @@ import android.content.pm.LauncherActivityInfo;
 import android.content.pm.LauncherApps;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -45,7 +46,245 @@ import java.util.Map;
 public final class LauncherCoordinator {
     private static final String TAG = "LauncherCoordinator";
 
+    private static final int MAX_SHORTCUT_ICON_CACHE = 48;
+    private static final Object SHORTCUT_ICON_LOCK = new Object();
+    private static final LinkedHashMap<String, byte[]> SHORTCUT_ICON_PNG =
+            new LinkedHashMap<String, byte[]>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, byte[]> eldest) {
+                    return size() > MAX_SHORTCUT_ICON_CACHE;
+                }
+            };
+
     private LauncherCoordinator() {}
+
+    private static String shortcutIconCacheKey(String pkg, String id) {
+        return pkg + "\0" + id;
+    }
+
+    private static int shortcutMatchFlags() {
+        int flags = android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
+                | android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC
+                | android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST;
+        if (Build.VERSION.SDK_INT >= 30) {
+            flags |= android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_CACHED;
+        }
+        if (Build.VERSION.SDK_INT >= 32) {
+            flags |= android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED_BY_ANY_LAUNCHER;
+        }
+        return flags;
+    }
+
+    /* WHY: ShortcutInfo.getIconResourceId() is @hide — missing from the public SDK stub. */
+    private static int hiddenShortcutIconResourceId(android.content.pm.ShortcutInfo info) {
+        if (info == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return 0;
+        try {
+            java.lang.reflect.Method m = info.getClass().getMethod("getIconResourceId");
+            Object raw = m.invoke(info);
+            return raw instanceof Integer ? (Integer) raw : 0;
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    /** Pin-request ShortcutInfo often has iconRes; getShortcuts after accept() is flaky. */
+    private static Drawable drawableFromShortcutInfo(
+            Context ctx, LauncherApps launcherApps, android.content.pm.ShortcutInfo info) {
+        if (ctx == null || launcherApps == null || info == null) return null;
+        int density = ctx.getResources().getDisplayMetrics().densityDpi;
+        try {
+            Drawable d = launcherApps.getShortcutIconDrawable(info, density);
+            if (d != null) return d;
+        } catch (Exception e) {
+            Log.w(TAG, "getShortcutIconDrawable failed", e);
+        }
+        /* WHY: getIconResourceId() is @hide — not in the public SDK stub. */
+        int resId = hiddenShortcutIconResourceId(info);
+        if (resId == 0) return null;
+        try {
+            Resources res = ctx.getPackageManager().getResourcesForApplication(info.getPackage());
+            Drawable d = res.getDrawableForDensity(resId, density, null);
+            return d != null ? d : res.getDrawable(resId, null);
+        } catch (Exception e) {
+            Log.w(TAG, "publisher shortcut iconRes failed pkg=" + info.getPackage(), e);
+            return null;
+        }
+    }
+
+    private static JSObject pngResult(String channel, String cacheKey, byte[] png) {
+        String b64 = Base64.encodeToString(png, Base64.NO_WRAP);
+        JSObject echo = new JSObject();
+        echo.put("cacheKey", cacheKey);
+        echo.put("mime", "image/png");
+        echo.put("base64", b64);
+        JSObject r = base(true, channel);
+        r.put("echo", echo);
+        r.put("cacheKey", cacheKey);
+        r.put("mime", "image/png");
+        r.put("base64", b64);
+        return r;
+    }
+
+    private static void rememberShortcutPng(String pkg, String id, JSObject encoded) {
+        if (encoded == null || !encoded.getBoolean("ok", false)) return;
+        String b64 = encoded.getString("base64", "");
+        if (b64 == null || b64.isEmpty()) return;
+        try {
+            byte[] png = Base64.decode(b64, Base64.NO_WRAP);
+            if (png == null || png.length == 0) return;
+            synchronized (SHORTCUT_ICON_LOCK) {
+                SHORTCUT_ICON_PNG.put(shortcutIconCacheKey(pkg, id), png);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "rememberShortcutPng failed", e);
+        }
+    }
+
+    /**
+     * Capture the pin-request icon before {@code accept()} — Material Files uses
+     * {@code mipmap/file_shortcut_icon}, not a bitmap path.
+     */
+    public static void cacheShortcutIcon(
+            Context ctx, LauncherApps launcherApps, android.content.pm.ShortcutInfo info) {
+        if (ctx == null || launcherApps == null || info == null) return;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return;
+        String pkg = info.getPackage() != null ? info.getPackage().trim() : "";
+        String id = info.getId() != null ? info.getId().trim() : "";
+        if (pkg.isEmpty() || id.isEmpty()) return;
+        try {
+            Drawable drawable = drawableFromShortcutInfo(ctx, launcherApps, info);
+            if (drawable == null) {
+                Log.w(TAG, "cacheShortcutIcon: no drawable pkg=" + pkg + " id=" + id);
+                return;
+            }
+            JSObject encoded = encodeIconDrawable(drawable, pkg + "/" + id, 192, "default");
+            rememberShortcutPng(pkg, id, encoded);
+            if (encoded.getBoolean("ok", false)) {
+                Log.i(TAG, "cached shortcut icon pkg=" + pkg + " id=" + id);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "cacheShortcutIcon failed pkg=" + pkg + " id=" + id, e);
+        }
+    }
+
+    /** Slim pin payload from a ShortcutInfo — never includes Intent.toUri / iconUrl. */
+    public static JSObject shortcutInfoToSlimPin(android.content.pm.ShortcutInfo info) {
+        if (info == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return null;
+        String pkg = info.getPackage() != null ? info.getPackage().trim() : "";
+        String id = info.getId() != null ? info.getId().trim() : "";
+        if (pkg.isEmpty() || id.isEmpty()) return null;
+        JSObject pin = new JSObject();
+        pin.put("packageName", pkg);
+        pin.put("shortcutId", id);
+        pin.put("action", "launch-shortcut");
+        pin.put("source", "pin-shortcut");
+        pin.put("iconDisplay", "colored");
+        try {
+            CharSequence label = info.getShortLabel();
+            if (label == null || label.length() == 0) label = info.getLongLabel();
+            if (label != null && label.length() > 0) pin.put("label", label.toString().trim());
+        } catch (Exception ignored) {
+            /* OEM */
+        }
+        return slimPinForBridge(pin);
+    }
+
+    /**
+     * Accept {@link LauncherApps#ACTION_CONFIRM_PIN_SHORTCUT} without Capacitor.
+     * WHY: singleTask HOME often drops the PinItemRequest; Files then no-ops forever
+     * because the OS already marks the shortcut pinned.
+     */
+    public static boolean handleConfirmPin(Activity activity, Intent intent) {
+        if (activity == null || intent == null) return false;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
+        try {
+            LauncherApps launcherApps =
+                    (LauncherApps) activity.getSystemService(Context.LAUNCHER_APPS_SERVICE);
+            if (launcherApps == null) return false;
+            LauncherApps.PinItemRequest request = launcherApps.getPinItemRequest(intent);
+            if (request == null || !request.isValid()) {
+                Log.w(TAG, "CONFIRM_PIN: no request action=" + intent.getAction());
+                return false;
+            }
+            if (request.getRequestType() != LauncherApps.PinItemRequest.REQUEST_TYPE_SHORTCUT) {
+                Log.i(TAG, "CONFIRM_PIN ignored type=" + request.getRequestType());
+                return false;
+            }
+            android.content.pm.ShortcutInfo info = request.getShortcutInfo();
+            cacheShortcutIcon(activity, launcherApps, info);
+            JSObject pin = shortcutInfoToSlimPin(info);
+            boolean accepted = request.accept();
+            Log.i(TAG, "CONFIRM_PIN accept=" + accepted + " pin=" + (pin != null ? pin.toString() : "null"));
+            if (pin != null) stashPendingPin(activity, pin);
+            return pin != null;
+        } catch (Exception e) {
+            Log.w(TAG, "CONFIRM_PIN failed", e);
+            return false;
+        }
+    }
+
+    public static void toastAndBringHome(Activity activity, String label) {
+        if (activity == null) return;
+        String text =
+                label != null && !label.trim().isEmpty()
+                        ? ("Добавлено: " + label.trim())
+                        : "Добавлено на Home";
+        try {
+            android.widget.Toast.makeText(activity, text, android.widget.Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Log.w(TAG, "pin toast failed", e);
+        }
+        try {
+            Intent home = new Intent(activity, MainActivity.class);
+            home.setAction(Intent.ACTION_MAIN);
+            home.addCategory(Intent.CATEGORY_HOME);
+            home.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                            | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            home.putExtra("cwsp_consume_pending_pin", true);
+            activity.startActivity(home);
+        } catch (Exception e) {
+            Log.w(TAG, "bring home after pin failed", e);
+        }
+    }
+
+    /** Shortcuts already pinned to this launcher — restore tiles Files will never re-send. */
+    public static JSObject listPinnedShortcuts(Context ctx) {
+        if (ctx == null) return fail("launcher:list-pinned", "context-null");
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) {
+            return fail("launcher:list-pinned", "api-too-low");
+        }
+        JSObject r = base(true, "launcher:list-pinned");
+        JSArray arr = new JSArray();
+        try {
+            LauncherApps launcherApps =
+                    (LauncherApps) ctx.getSystemService(Context.LAUNCHER_APPS_SERVICE);
+            if (launcherApps == null) {
+                return fail("launcher:list-pinned", "launcher-apps-unavailable");
+            }
+            android.content.pm.LauncherApps.ShortcutQuery query =
+                    new android.content.pm.LauncherApps.ShortcutQuery();
+            query.setQueryFlags(shortcutMatchFlags());
+            java.util.List<android.content.pm.ShortcutInfo> list =
+                    launcherApps.getShortcuts(query, Process.myUserHandle());
+            if (list != null) {
+                for (android.content.pm.ShortcutInfo info : list) {
+                    if (info == null || !info.isPinned()) continue;
+                    JSObject pin = shortcutInfoToSlimPin(info);
+                    if (pin != null) arr.put(pin);
+                }
+            }
+            Log.i(TAG, "listPinnedShortcuts n=" + arr.length());
+        } catch (Exception e) {
+            Log.w(TAG, "listPinnedShortcuts failed", e);
+        }
+        JSObject echo = new JSObject();
+        echo.put("shortcuts", arr);
+        r.put("echo", echo);
+        r.put("shortcuts", arr);
+        return r;
+    }
 
     public static JSObject isDefaultHome(Context ctx) {
         boolean held = queryIsDefaultHome(ctx);
@@ -160,6 +399,13 @@ public final class LauncherCoordinator {
         if (size < 16) size = 16;
         if (size > 512) size = 512;
         try {
+            synchronized (SHORTCUT_ICON_LOCK) {
+                byte[] cached = SHORTCUT_ICON_PNG.get(shortcutIconCacheKey(pkg, id));
+                if (cached != null && cached.length > 0) {
+                    Log.i(TAG, "shortcutIcon cache-hit pkg=" + pkg + " id=" + id);
+                    return pngResult("launcher:shortcut-icon", pkg + "/" + id, cached);
+                }
+            }
             LauncherApps launcherApps =
                     (LauncherApps) ctx.getSystemService(Context.LAUNCHER_APPS_SERVICE);
             if (launcherApps == null) {
@@ -170,25 +416,24 @@ public final class LauncherCoordinator {
                     new android.content.pm.LauncherApps.ShortcutQuery();
             query.setPackage(pkg);
             query.setShortcutIds(java.util.Collections.singletonList(id));
-            query.setQueryFlags(
-                    android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
-                            | android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC
-                            | android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST);
+            query.setQueryFlags(shortcutMatchFlags());
             java.util.List<android.content.pm.ShortcutInfo> list =
                     launcherApps.getShortcuts(query, user);
             if (list == null || list.isEmpty()) {
+                Log.w(TAG, "shortcutIcon not-found pkg=" + pkg + " id=" + id);
                 return fail("launcher:shortcut-icon", "shortcut-not-found");
             }
             android.content.pm.ShortcutInfo info = list.get(0);
-            int density = ctx.getResources().getDisplayMetrics().densityDpi;
-            Drawable drawable = launcherApps.getShortcutIconDrawable(info, density);
+            Drawable drawable = drawableFromShortcutInfo(ctx, launcherApps, info);
             if (drawable == null) {
+                Log.w(TAG, "shortcutIcon icon-unavailable pkg=" + pkg + " id=" + id);
                 return fail("launcher:shortcut-icon", "icon-unavailable");
             }
             JSObject encoded = encodeIconDrawable(drawable, pkg + "/" + id, size, "default");
             if (!encoded.getBoolean("ok", false)) {
                 return fail("launcher:shortcut-icon", "encode-failed");
             }
+            rememberShortcutPng(pkg, id, encoded);
             encoded.put("channel", "launcher:shortcut-icon");
             return encoded;
         } catch (Exception e) {
@@ -204,8 +449,7 @@ public final class LauncherCoordinator {
             Context ctx, LauncherApps launcherApps, android.content.pm.ShortcutInfo info, int size) {
         if (ctx == null || launcherApps == null || info == null) return "";
         try {
-            int density = ctx.getResources().getDisplayMetrics().densityDpi;
-            Drawable drawable = launcherApps.getShortcutIconDrawable(info, density);
+            Drawable drawable = drawableFromShortcutInfo(ctx, launcherApps, info);
             if (drawable == null) return "";
             int sz = size > 0 ? size : 192;
             JSObject encoded = encodeIconDrawable(drawable, "pin-shortcut", sz, "default");
@@ -977,36 +1221,165 @@ public final class LauncherCoordinator {
         return "";
     }
 
-    /** Last Share / VIEW pin payload — survives WebView boot race. */
+    /**
+     * Last Share / pin payload. Memory + prefs — process death after a WebView crash
+     * must not lose the tile. Bridge sees only {@link #slimPinForBridge}.
+     */
     private static final Object PENDING_PIN_LOCK = new Object();
+    private static final String PIN_PREFS = "cwsp_launcher";
+    private static final String PIN_PREFS_KEY = "pending_pin_json";
+    private static final int BRIDGE_URI_MAX = 512;
+    private static final int BRIDGE_LABEL_MAX = 180;
     private static JSObject pendingPin = null;
 
     public static void stashPendingPin(JSObject pin) {
+        stashPendingPin(null, pin);
+    }
+
+    public static void stashPendingPin(Context ctx, JSObject pin) {
+        JSObject slim = slimPinForBridge(pin);
         synchronized (PENDING_PIN_LOCK) {
-            pendingPin = pin;
+            pendingPin = slim;
+        }
+        if (ctx == null || slim == null) return;
+        try {
+            ctx.getApplicationContext()
+                    .getSharedPreferences(PIN_PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(PIN_PREFS_KEY, slim.toString())
+                    .apply();
+        } catch (Exception e) {
+            Log.w(TAG, "stashPendingPin persist failed", e);
         }
     }
 
-    /** Non-destructive peek for HOME resume after INSTALL_SHORTCUT broadcast. */
+    /** Non-destructive peek (memory, then prefs). */
     public static JSObject peekPendingPin() {
+        return peekPendingPin(null);
+    }
+
+    public static JSObject peekPendingPin(Context ctx) {
         synchronized (PENDING_PIN_LOCK) {
-            return pendingPin;
+            if (pendingPin != null) return pendingPin;
+        }
+        if (ctx == null) return null;
+        try {
+            String json =
+                    ctx.getApplicationContext()
+                            .getSharedPreferences(PIN_PREFS, Context.MODE_PRIVATE)
+                            .getString(PIN_PREFS_KEY, "");
+            if (json == null || json.isEmpty()) return null;
+            JSObject stored = new JSObject(json);
+            synchronized (PENDING_PIN_LOCK) {
+                if (pendingPin == null) pendingPin = stored;
+                return pendingPin;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "peekPendingPin prefs failed", e);
+            return null;
         }
     }
 
-    public static JSObject consumePendingPin() {
-        JSObject pin;
+    public static void ackPendingPin(Context ctx) {
         synchronized (PENDING_PIN_LOCK) {
-            pin = pendingPin;
             pendingPin = null;
         }
+        if (ctx == null) return;
+        try {
+            ctx.getApplicationContext()
+                    .getSharedPreferences(PIN_PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .remove(PIN_PREFS_KEY)
+                    .apply();
+        } catch (Exception e) {
+            Log.w(TAG, "ackPendingPin failed", e);
+        }
+    }
+
+    /**
+     * INVARIANT: never copy iconUrl / intentUri / share text onto the Capacitor bridge.
+     * evaluateJavascript of those strings killed the WebView; the tile then vanished
+     * because the in-memory stash died with the process.
+     */
+    public static JSObject slimPinForBridge(JSObject pin) {
+        if (pin == null) return null;
+        JSObject slim = new JSObject();
+        putClipped(slim, pin, "action", 64);
+        putClipped(slim, pin, "packageName", 256);
+        putClipped(slim, pin, "shortcutId", 1024);
+        putClipped(slim, pin, "label", BRIDGE_LABEL_MAX);
+        putClipped(slim, pin, "mimeType", 128);
+        putClipped(slim, pin, "iconDisplay", 32);
+        putClipped(slim, pin, "source", 64);
+        putClipped(slim, pin, "componentName", 256);
+        String url = firstPinString(pin, "url", "href");
+        if (isBridgeSafeUri(url)) {
+            slim.put("url", url);
+            slim.put("href", url);
+        }
+        return slim;
+    }
+
+    private static void putClipped(JSObject dest, JSObject src, String key, int max) {
+        String v = firstPinString(src, key);
+        if (v.isEmpty()) return;
+        if (v.length() > max) v = v.substring(0, max);
+        dest.put(key, v);
+    }
+
+    private static String firstPinString(JSObject src, String... keys) {
+        if (src == null || keys == null) return "";
+        for (String key : keys) {
+            if (key == null || !src.has(key)) continue;
+            try {
+                String v = String.valueOf(src.get(key)).trim();
+                if ("null".equals(v)) continue;
+                if (!v.isEmpty()) return v;
+            } catch (Exception ignored) {
+                /* missing */
+            }
+        }
+        return "";
+    }
+
+    private static boolean isBridgeSafeUri(String uri) {
+        if (uri == null) return false;
+        String s = uri.trim();
+        if (s.isEmpty() || s.length() > BRIDGE_URI_MAX) return false;
+        String lower = s.toLowerCase(Locale.US);
+        if (lower.startsWith("data:")
+                || lower.startsWith("blob:")
+                || lower.startsWith("intent:")
+                || lower.startsWith("android-app:")) {
+            return false;
+        }
+        return lower.startsWith("http://")
+                || lower.startsWith("https://")
+                || lower.startsWith("content://")
+                || lower.startsWith("file://")
+                || lower.startsWith("www.");
+    }
+
+    /** Peek only — JS must {@link #ackPendingPin} after the tile is added. */
+    public static JSObject consumePendingPin() {
+        return consumePendingPin(null);
+    }
+
+    public static JSObject consumePendingPin(Context ctx) {
+        JSObject pin = peekPendingPin(ctx);
         JSObject r = base(true, "launcher:pending-pin");
         JSObject echo = new JSObject();
-        if (pin != null) {
-            echo.put("pin", pin);
-            r.put("pin", pin);
+        JSObject slim = slimPinForBridge(pin);
+        if (slim != null) {
+            echo.put("pin", slim);
+            r.put("pin", slim);
         }
         r.put("echo", echo);
         return r;
+    }
+
+    public static JSObject ackPendingPinResult(Context ctx) {
+        ackPendingPin(ctx);
+        return base(true, "launcher:ack-pin");
     }
 }

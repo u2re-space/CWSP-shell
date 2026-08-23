@@ -1,8 +1,8 @@
 /*
  * Filename: MainActivity.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/MainActivity.java
- * Change date and time: 22.56.00_22.08.2026
- * Reason for changes: Hide 3-button nav (swipe to peek); keep wallpaper-transparent chrome.
+ * Change date and time: 21.42.00_23.08.2026
+ * Reason for changes: Pin notify is a ping; stash slim fields only (no Intent.toUri on the bridge).
  */
 
 package space.u2re.cwsp;
@@ -175,6 +175,7 @@ public class MainActivity extends BridgeActivity {
 
     private void handleIncomingIntent(Intent intent) {
         if (intent == null) return;
+        Log.i(TAG, "incoming action=" + intent.getAction());
 
         if (tryHandlePinShortcutRequest(intent)) {
             clearTransientIntent(intent);
@@ -190,7 +191,7 @@ public class MainActivity extends BridgeActivity {
             Log.i(TAG, "HOME intent — notify WebView");
             notifyLauncherHomePressed();
             try {
-                JSObject pending = LauncherCoordinator.peekPendingPin();
+                JSObject pending = LauncherCoordinator.peekPendingPin(this);
                 if (pending != null) notifyLauncherPinShortcut(pending);
             } catch (Exception e) {
                 Log.w(TAG, "pending pin notify failed", e);
@@ -200,7 +201,7 @@ public class MainActivity extends BridgeActivity {
         JSObject pin = extractPinFromIntent(intent);
         if (pin == null) return;
         Log.i(TAG, "pin-shortcut intent — " + pin.toString());
-        LauncherCoordinator.stashPendingPin(pin);
+        LauncherCoordinator.stashPendingPin(this, pin);
         notifyLauncherPinShortcut(pin);
         clearTransientIntent(intent);
     }
@@ -220,30 +221,10 @@ public class MainActivity extends BridgeActivity {
      * that call {@code ShortcutManager.requestPinShortcut}.
      */
     private boolean tryHandlePinShortcutRequest(Intent intent) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
-        try {
-            LauncherApps launcherApps = (LauncherApps) getSystemService(LAUNCHER_APPS_SERVICE);
-            if (launcherApps == null) return false;
-            LauncherApps.PinItemRequest request = launcherApps.getPinItemRequest(intent);
-            if (request == null || !request.isValid()) return false;
-            if (request.getRequestType() != LauncherApps.PinItemRequest.REQUEST_TYPE_SHORTCUT) {
-                Log.i(TAG, "pin request ignored type=" + request.getRequestType());
-                return false;
-            }
-            ShortcutInfo info = request.getShortcutInfo();
-            JSObject pin = shortcutInfoToPin(info, launcherApps);
-            boolean accepted = request.accept();
-            Log.i(TAG, "CONFIRM_PIN_SHORTCUT accept=" + accepted + " pin=" + (pin != null ? pin.toString() : "null"));
-            if (pin != null) {
-                LauncherCoordinator.stashPendingPin(pin);
-                notifyLauncherPinShortcut(pin);
-                notifyLauncherHomePressed();
-            }
-            return true;
-        } catch (Exception e) {
-            Log.w(TAG, "CONFIRM_PIN_SHORTCUT failed", e);
-            return false;
-        }
+        if (!LauncherCoordinator.handleConfirmPin(this, intent)) return false;
+        notifyLauncherPinShortcut(null);
+        notifyLauncherHomePressed();
+        return true;
     }
 
     /** Older file managers: INSTALL_SHORTCUT activity / extras. */
@@ -259,7 +240,7 @@ public class MainActivity extends BridgeActivity {
             JSObject pin = intentToPin(shortcutIntent, name != null ? name.toString() : null, "install-shortcut");
             if (pin == null) return false;
             Log.i(TAG, "INSTALL_SHORTCUT — " + pin.toString());
-            LauncherCoordinator.stashPendingPin(pin);
+            LauncherCoordinator.stashPendingPin(this, pin);
             notifyLauncherPinShortcut(pin);
             notifyLauncherHomePressed();
             return true;
@@ -269,7 +250,7 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private JSObject shortcutInfoToPin(ShortcutInfo info, LauncherApps launcherApps) {
+    private JSObject shortcutInfoToPin(ShortcutInfo info) {
         if (info == null) return null;
         String label = null;
         try {
@@ -292,14 +273,9 @@ public class MainActivity extends BridgeActivity {
             /* ignore */
         }
 
-        /* Capture the shortcut's own icon (file type / thumbnail), not the Files app icon. */
-        String iconUrl = "";
-        try {
-            iconUrl = LauncherCoordinator.shortcutInfoToDataUrl(this, launcherApps, info, 192);
-        } catch (Exception e) {
-            Log.w(TAG, "shortcut icon capture failed", e);
-        }
-
+        /* WHY: do not bake PNG data-URLs into the pin payload — evaluateJavascript
+         * of that JSON killed Capacitor when pinning Material Files .txt shortcuts.
+         * WebView hydrates via launcher:shortcut-icon (package + shortcutId). */
         Intent[] intents = null;
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
@@ -370,10 +346,7 @@ public class MainActivity extends BridgeActivity {
                             guessMimeType(label, docLaunch != null ? docLaunch.getType() : null);
                     if (mime != null && !mime.isEmpty()) docPin.put("mimeType", mime);
                 }
-                if (iconUrl != null && !iconUrl.isEmpty()) {
-                    docPin.put("iconUrl", iconUrl);
-                    docPin.put("iconDisplay", "colored");
-                }
+                docPin.put("iconDisplay", "colored");
             } catch (Exception ignored) {
                 /* ignore */
             }
@@ -398,10 +371,7 @@ public class MainActivity extends BridgeActivity {
             pin.put("source", "pin-shortcut");
             String mime = guessMimeType(label, null);
             if (mime != null && !mime.isEmpty()) pin.put("mimeType", mime);
-            if (iconUrl != null && !iconUrl.isEmpty()) {
-                pin.put("iconUrl", iconUrl);
-                pin.put("iconDisplay", "colored");
-            }
+            pin.put("iconDisplay", "colored");
             Log.i(TAG, "pin via startShortcut — " + pin.toString());
             return pin;
         }
@@ -522,7 +492,7 @@ public class MainActivity extends BridgeActivity {
         return declared != null ? declared.trim() : "";
     }
 
-    static JSObject intentToPin(Intent launch, String label, String source) {
+    public static JSObject intentToPin(Intent launch, String label, String source) {
         if (launch == null) return null;
         Uri data = extractDocumentUri(launch);
         String action = launch.getAction();
@@ -550,16 +520,7 @@ public class MainActivity extends BridgeActivity {
                     }
                 }
                 if (mime != null && !mime.isEmpty()) pin.put("mimeType", mime);
-                /*
-                 * WHY: never attach launch.getPackage() for content/file/http — that is often
-                 * the shortcut publisher (Files) and would force the wrong app on open.
-                 * Persist intentUri only as a secondary payload for exact replay if needed.
-                 */
-                try {
-                    pin.put("intentUri", launch.toUri(Intent.URI_INTENT_SCHEME));
-                } catch (Exception ignored) {
-                    /* ignore */
-                }
+                /* WHY: never attach publisher package or Intent.toUri — both crashed the WebView. */
                 return pin;
             }
         }
@@ -576,22 +537,17 @@ public class MainActivity extends BridgeActivity {
             return pin;
         }
 
-        /* Last resort: serialize intent URI so Cap can ACTION_VIEW it. */
-        try {
-            String intentUri = launch.toUri(Intent.URI_INTENT_SCHEME);
-            if (intentUri != null && !intentUri.isEmpty()) {
-                JSObject pin = new JSObject();
-                pin.put("url", intentUri);
-                pin.put("href", intentUri);
-                pin.put("intentUri", intentUri);
-                pin.put("action", "open-uri");
-                if (label != null && !label.trim().isEmpty()) pin.put("label", label.trim());
-                pin.put("source", source != null ? source : "intent");
-                if (mime != null && !mime.isEmpty()) pin.put("mimeType", mime);
-                return pin;
+        /* Last resort: package tile only — Intent.toUri must not enter the WebView bridge. */
+        if (pkg != null && !pkg.isEmpty()) {
+            JSObject pin = new JSObject();
+            pin.put("packageName", pkg);
+            pin.put("action", "launch-app");
+            if (label != null && !label.trim().isEmpty()) pin.put("label", label.trim());
+            pin.put("source", source != null ? source : "intent");
+            if (launch.getComponent() != null) {
+                pin.put("componentName", launch.getComponent().flattenToShortString());
             }
-        } catch (Exception ignored) {
-            /* ignore */
+            return pin;
         }
         return null;
     }
@@ -690,7 +646,9 @@ public class MainActivity extends BridgeActivity {
         try {
             Bridge bridge = getBridge();
             if (bridge != null) {
-                bridge.triggerWindowJSEvent("launcherPinShortcut", pin.toString());
+                /* WHY: never inject pin JSON into evaluateJavascript — intentUri/data:
+                 * payloads crashed Capacitor. JS reads the slim stash via launcher:pending-pin. */
+                bridge.triggerWindowJSEvent("launcherPinShortcut", "{\"pending\":true}");
             }
         } catch (Exception e) {
             Log.w(TAG, "launcherPinShortcut failed", e);
