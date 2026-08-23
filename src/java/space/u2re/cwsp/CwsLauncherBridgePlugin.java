@@ -1,8 +1,8 @@
 /*
  * Filename: CwsLauncherBridgePlugin.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/CwsLauncherBridgePlugin.java
- * Change date and time: 21.40.00_22.08.2026
- * Reason for changes: Report displayRefreshHz after unlocking high-refresh window modes.
+ * Change date and time: 23.09.25_23.08.2026
+ * Reason for changes: navigationBarHeightCss stays 0 — 3-button pad is OS-owned.
  */
 
 package space.u2re.cwsp;
@@ -53,7 +53,9 @@ public class CwsLauncherBridgePlugin extends Plugin {
         info.put("platform", "android");
         info.put("sku", "launcher");
         info.put("statusBarHeightCss", systemBarHeightCss(getContext(), "status_bar_height"));
-        info.put("navigationBarHeightCss", systemBarHeightCss(getContext(), "navigation_bar_height"));
+        // WHY: resource navigation_bar_height is the 3-button pad even when SystemBars
+        // already reserved it — injecting it into CSS painted a second empty strip.
+        info.put("navigationBarHeightCss", 0);
         String accent = materialYouAccentHex(getContext());
         if (!TextUtils.isEmpty(accent)) info.put("accentColor", accent);
         String wallpaper = wallpaperPrimaryHex(getContext());
@@ -370,6 +372,13 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 r.put("echo", echo);
                 return r;
             }
+            case "app:info":
+            case "app:version":
+                return AppUpdateHelper.info(getContext());
+            case "app:update:check":
+                return AppUpdateHelper.check(getContext(), payload);
+            case "app:update:install":
+                return AppUpdateHelper.install(getContext(), getActivity(), payload);
             default: {
                 JSObject r = baseResult(false, channel);
                 JSObject echo = new JSObject();

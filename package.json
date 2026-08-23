@@ -39,6 +39,8 @@
         "sync:capacitor:android": "node ./scripts/sync-capacitor-android.mjs",
         "sync:capacitor:identity": "node ./scripts/sync-capacitor-app-identity.mjs",
         "sync:capacitor:icons": "node ./scripts/sync-capacitor-android-icons.mjs",
+        "publish:apk": "node ./scripts/publish-android-apk.mjs",
+        "publish:apk:200": "node ./scripts/publish-android-apk.mjs --remote",
         "build:crx": "npm --prefix ../CWSP-crx run build:crx"
     },
     "browserslist": [
@@ -99,5 +101,5 @@
         "vite-plugin-static-copy": ">=3.1.1",
         "vite-tsconfig-paths": ">=5.1.4"
     },
-    "version": "0.0.27"
+    "version": "0.0.35"
 }

@@ -1,8 +1,8 @@
 /*
  * Filename: build-capacitor.mjs
  * FullPath: apps/CWSP-shell/scripts/build-capacitor.mjs
- * Change date and time: 18.35.00_19.08.2026
- * Reason for changes: CWSP Launcher APK build (web + Gradle assembleDebug).
+ * Change date and time: 08.56.00_23.08.2026
+ * Reason for changes: After assemble, stage latest-launcher.json like transfer's publish:apk.
  *
  * Usage:
  *   node scripts/build-capacitor.mjs
@@ -10,6 +10,7 @@
  *   node scripts/build-capacitor.mjs --web-only
  *   node scripts/build-capacitor.mjs --skip-web
  *   node scripts/build-capacitor.mjs --no-bump
+ *   node scripts/build-capacitor.mjs --no-publish
  */
 
 import { spawnSync } from "node:child_process";
@@ -29,7 +30,10 @@ function parseArgs(argv) {
         release: argv.includes("--release"),
         webOnly: argv.includes("--web-only"),
         skipWeb: argv.includes("--skip-web"),
-        noBump: argv.includes("--no-bump") || envNoBump
+        noBump: argv.includes("--no-bump") || envNoBump,
+        noPublish:
+            argv.includes("--no-publish") ||
+            String(process.env.CWSP_CAPACITOR_NO_PUBLISH || "").trim() === "1"
     };
 }
 
@@ -107,6 +111,12 @@ function main() {
     const hasLauncherApk = launcherApk ? fs.existsSync(path.join(apkOut, launcherApk)) : false;
     if (!hasLauncherApk) {
         run(process.execPath, [path.join(APP_ROOT, "scripts/copy-capacitor-apk.mjs")]);
+    }
+
+    if (args.noPublish) {
+        console.log("[build:capacitor] --no-publish — skip staging latest-launcher.json");
+    } else {
+        run(process.execPath, [path.join(APP_ROOT, "scripts/publish-android-apk.mjs")]);
     }
 
     const verLabel = bumped ? `${bumped.versionName} (${bumped.versionCode})` : "(unchanged version.properties)";
