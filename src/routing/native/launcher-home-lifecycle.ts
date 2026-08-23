@@ -1,8 +1,8 @@
 /*
  * Filename: launcher-home-lifecycle.ts
  * FullPath: apps/CWSP-shell/src/routing/native/launcher-home-lifecycle.ts
- * Change date and time: 22.06.00_23.08.2026
- * Reason for changes: Pin no longer awaits hung OPFS getDirectory before addSpeedDialItem.
+ * Change date and time: 22.18.00_23.08.2026
+ * Reason for changes: Home Remove of an OS-pinned Files shortcut must stick (no import revive).
  */
 
 import {
@@ -165,6 +165,27 @@ async function applyPinPayload(raw: LauncherPendingPin | Record<string, unknown>
         const mod = await import("fl-ui/speed-dial/launcher-state");
         /* WHY: never await linkStoreReady/OPFS here — getDirectory() hangs on Cap WebView,
          * so the tile never reached addSpeedDialItem. Dirty flags already skip hydrate splice. */
+        const silent = String((raw as LauncherPendingPin).source || "") === "pinned-import";
+        if (pkg && shortcutId && mod.isAndroidShortcutDismissed?.(pkg, shortcutId)) {
+            const stashedAt = Number((raw as LauncherPendingPin & { stashedAt?: number }).stashedAt || 0);
+            const dismissedAt = Number(mod.androidShortcutDismissedAt?.(pkg, shortcutId) || 0);
+            /* WHY: leftover consume has the old stash timestamp — do not revive. */
+            if (silent || !stashedAt || stashedAt <= dismissedAt) {
+                console.info("[launcher] pin skipped (removed)", shortcutId);
+                if (!silent) {
+                    try {
+                        await launcherAckPendingPin();
+                    } catch {
+                        /* ignore */
+                    }
+                }
+                return false;
+            }
+            mod.forgetDismissedAndroidShortcut?.(pkg, shortcutId);
+        }
+        if (silent && pkg && shortcutId && mod.findSpeedDialShortcutItem?.(pkg, shortcutId)) {
+            return false;
+        }
         try {
             const pages = await import("fl-ui/speed-dial/workspace-pages");
             pages.bootWorkspacePages?.();
@@ -194,7 +215,6 @@ async function applyPinPayload(raw: LauncherPendingPin | Record<string, unknown>
         }
         lastPinKey = key;
         lastPinAt = Date.now();
-        const silent = String((raw as LauncherPendingPin).source || "") === "pinned-import";
         if (!silent) {
             try {
                 await launcherAckPendingPin();
@@ -291,6 +311,13 @@ export function installLauncherHomeLifecycle(): void {
     window.addEventListener("launcherPinShortcut", () => {
         /* Event is only a ping — payload stays in native stash (too large for evaluateJavascript). */
         void consumePendingPinSoon();
+    });
+
+    window.addEventListener("cwsp:speed-dial-mutation", () => {
+        const g = globalThis as { __CWSP_ACK_PIN_AFTER_REMOVE__?: boolean };
+        if (!g.__CWSP_ACK_PIN_AFTER_REMOVE__) return;
+        g.__CWSP_ACK_PIN_AFTER_REMOVE__ = false;
+        void launcherAckPendingPin();
     });
 
     void consumePendingPinSoon();

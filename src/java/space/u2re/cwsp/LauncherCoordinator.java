@@ -1238,6 +1238,9 @@ public final class LauncherCoordinator {
 
     public static void stashPendingPin(Context ctx, JSObject pin) {
         JSObject slim = slimPinForBridge(pin);
+        if (slim != null && !slim.has("stashedAt")) {
+            slim.put("stashedAt", System.currentTimeMillis());
+        }
         synchronized (PENDING_PIN_LOCK) {
             pendingPin = slim;
         }
@@ -1312,6 +1315,13 @@ public final class LauncherCoordinator {
         putClipped(slim, pin, "iconDisplay", 32);
         putClipped(slim, pin, "source", 64);
         putClipped(slim, pin, "componentName", 256);
+        if (pin.has("stashedAt")) {
+            try {
+                slim.put("stashedAt", pin.getLong("stashedAt"));
+            } catch (Exception ignored) {
+                /* optional */
+            }
+        }
         String url = firstPinString(pin, "url", "href");
         if (isBridgeSafeUri(url)) {
             slim.put("url", url);

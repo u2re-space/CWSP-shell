@@ -267,6 +267,7 @@ export type LauncherPendingPin = {
     mimeType?: string;
     iconUrl?: string;
     iconDisplay?: string;
+    stashedAt?: number;
 };
 
 /** Peek Share / VIEW / pin-shortcut queued before the WebView was ready. */
