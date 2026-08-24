@@ -224,7 +224,7 @@ const createHostSpaConfig = async ({ mode, outDir, platformRoot, cacheDir, enabl
 };
 
 /** CWSP Launcher Capacitor WebView bundle (system HOME SKU). */
-const LAUNCHER_ENABLED_VIEWS = ["minimal", "home", "explorer", "settings", "viewer"];
+const LAUNCHER_ENABLED_VIEWS = ["home", "settings"];
 
 const createCapacitorLauncherConfig = async (mode) => {
     const platformRoot = resolve(__dirname, "./src/frontend/web/capacitor-launcher");
@@ -300,9 +300,9 @@ const createCapacitorLauncherConfig = async (mode) => {
             "import.meta.env.RS_SHELL_ROLE": JSON.stringify("launcher"),
             __RS_DEFAULT_VIEW__: JSON.stringify("home"),
             __RS_VIEW_HOME__: "true",
-            __RS_VIEW_EXPLORER__: "true",
+            __RS_VIEW_EXPLORER__: "false",
             __RS_VIEW_SETTINGS__: "true",
-            __RS_VIEW_VIEWER__: "true",
+            __RS_VIEW_VIEWER__: "false",
             __RS_VIEW_NETWORK__: "false",
             __RS_VIEW_AIRPAD__: "false",
             __RS_VIEW_EDITOR__: "false",

@@ -44,6 +44,7 @@ android {
         manifestPlaceholders = [cwspAllowCleartext: 'false']
         resValue "string", "app_name", "CW-i1"
         buildConfigField "boolean", "CWSP_LAUNCHER_SKU", "true"
+        buildConfigField "String", "CWSP_SKU", "\"launcher\""
         aaptOptions {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~:!*.gz:!*.br'
         }

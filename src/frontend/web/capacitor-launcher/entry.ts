@@ -2,7 +2,7 @@
  * Filename: entry.ts
  * FullPath: apps/CWSP-shell/src/frontend/web/capacitor-launcher/entry.ts
  * Change date and time: 22.56.00_22.08.2026
- * Reason for changes: Hide Capacitor 8 NavigationBar on the launcher SKU.
+ * Reason for changes: Launcher SKU — home+settings only; sibling APKs own explorer/document.
  */
 
 import { SystemBarType, SystemBars } from "@capacitor/core";
@@ -27,22 +27,19 @@ import {
     widgetList,
     launcherRequestDefault,
     launcherStartShortcut,
-    launcherShortcutIcon,
-    storageAllFilesStatus,
-    storageList,
-    storagePickSaf,
-    storageRequestAllFiles
+    launcherShortcutIcon
 } from "com/routing/native/launcher-bridge";
+import { applyCwspSku } from "com/config/ecosystem-skus";
 import { setLauncherBridgeForAppMenu } from "fl-ui/navigation/app-menu/AppMenu";
 import { setLauncherBridgeForSpeedDial } from "fl-ui/speed-dial/action-registry";
 import { setAndroidWidgetBridge } from "fl-ui/speed-dial/widgets";
-import { setExplorerStorageApi } from "fl-ui/explorer/storage-bridge";
-import { ensureDefaultFsBackends } from "fl-ui/explorer/path-router";
 
-const enabledViews = ["minimal", "home", "explorer", "settings", "viewer", "browser"] as const;
+const enabledViews = ["home", "settings"] as const;
 
+applyCwspSku("launcher");
 document.documentElement.dataset.cwspShellRole = "launcher";
 document.documentElement.dataset.cwspNativeShell = "capacitor";
+document.documentElement.dataset.cwspSurface = "environment";
 document.documentElement.dataset.cwspEnabledViews = enabledViews.join(",");
 document.documentElement.dataset.cwspDefaultView = "home";
 
@@ -99,14 +96,6 @@ setAndroidWidgetBridge({
     widgetDelete,
     widgetHideAll
 });
-
-setExplorerStorageApi({
-    list: storageList,
-    pickSaf: storagePickSaf,
-    allFilesStatus: storageAllFilesStatus,
-    requestAllFiles: storageRequestAllFiles
-});
-ensureDefaultFsBackends();
 
 function showBootFailure(error: unknown): void {
     const message = error instanceof Error ? error.stack || error.message : String(error);

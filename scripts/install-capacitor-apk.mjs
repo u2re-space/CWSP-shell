@@ -5,11 +5,11 @@
  * Reason for changes: adb install latest cwsp-launcher APK after build.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { installApksOnFleet } from "./adb-install-apks.mjs";
 import { loadPwaIdentity } from "./sync-capacitor-app-identity.mjs";
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -38,21 +38,13 @@ function findLauncherApk() {
     return candidates[0]?.full ?? null;
 }
 
-function run(cmd, args) {
-    console.log(`[install:capacitor] ${cmd} ${args.join(" ")}`);
-    const r = spawnSync(cmd, args, { stdio: "inherit" });
-    if (r.status !== 0) {
-        throw new Error(`${cmd} failed with status ${r.status}`);
-    }
-}
-
 function main() {
     const apk = findLauncherApk();
     if (!apk) {
         console.error(`[install:capacitor] no ${apkStem()}-*.apk under ${APK_DIR} — run npm run build:capacitor:launcher first`);
         process.exit(1);
     }
-    run("adb", ["install", "-r", apk]);
+    installApksOnFleet([apk]);
     console.log(`[install:capacitor] OK — ${apk}`);
 }
 

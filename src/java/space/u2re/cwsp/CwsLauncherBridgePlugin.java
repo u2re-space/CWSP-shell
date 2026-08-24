@@ -51,7 +51,7 @@ public class CwsLauncherBridgePlugin extends Plugin {
         info.put("bridge", "cws-bridge");
         info.put("native", true);
         info.put("platform", "android");
-        info.put("sku", "launcher");
+        info.put("sku", BuildConfig.CWSP_SKU);
         info.put("statusBarHeightCss", systemBarHeightCss(getContext(), "status_bar_height"));
         // WHY: resource navigation_bar_height is the 3-button pad even when SystemBars
         // already reserved it — injecting it into CSS painted a second empty strip.
