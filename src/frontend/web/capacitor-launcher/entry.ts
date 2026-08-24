@@ -109,4 +109,10 @@ function showBootFailure(error: unknown): void {
 
 installLauncherHomeLifecycle();
 
+void import("views/settings")
+    .then((m) => m.refreshInstalledSiblingSettingsSections?.())
+    .catch(() => {
+        /* settings module optional at boot */
+    });
+
 void bootEnvironment(document.body, "home").catch(showBootFailure);

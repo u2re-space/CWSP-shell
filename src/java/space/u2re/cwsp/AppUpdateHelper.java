@@ -58,8 +58,9 @@ import javax.net.ssl.X509TrustManager;
  * the configured relay host) may be used as APK sources. Install also requires
  * the downloaded APK signing certificate to match the installed app (same-signer).</p>
  *
- * <p>INVARIANT: launcher must not consume transfer's {@code latest.json}/{@code cwsp.apk}
- * ({@code space.u2re.cwsp}). Channel is {@code latest-launcher.json} + {@code cwsp-launcher.apk}.</p>
+ * <p>INVARIANT: self-update stays on {@code latest-launcher.json} + {@code cwsp-launcher.apk}.
+ * Launcher settings sibling sections may pass {@code sku=transfer|explorer|document|process}
+ * to update that installed package — still same-signer, allowlisted host.</p>
  *
  * <p>WHY: launcher artifacts are public on the gateway — ecosystem token is optional here.</p>
  */
@@ -76,13 +77,81 @@ final class AppUpdateHelper {
 
     private AppUpdateHelper() {}
 
+    /** Allowlisted sibling / self channel. Client cannot pick an arbitrary manifest path. */
+    private static final class UpdateChannel {
+        final String sku;
+        final String packageId;
+        final String manifestPath;
+        final String defaultApk;
+        final boolean tokenRequired;
+
+        UpdateChannel(String sku, String packageId, String manifestPath, String defaultApk, boolean tokenRequired) {
+            this.sku = sku;
+            this.packageId = packageId;
+            this.manifestPath = manifestPath;
+            this.defaultApk = defaultApk;
+            this.tokenRequired = tokenRequired;
+        }
+    }
+
+    private static UpdateChannel channelFor(Context context, JSObject payload) {
+        String sku = str(payload, "sku", "").trim().toLowerCase(Locale.ROOT);
+        if (sku.isEmpty()) {
+            String pkg = str(payload, "packageName", "").trim();
+            if ("space.u2re.cwsp".equals(pkg)) sku = "transfer";
+            else if ("space.u2re.explorer".equals(pkg)) sku = "explorer";
+            else if ("space.u2re.document".equals(pkg)) sku = "document";
+            else if ("space.u2re.process".equals(pkg)) sku = "process";
+            else sku = "launcher";
+        }
+        switch (sku) {
+            case "transfer":
+                return new UpdateChannel(
+                        "transfer", "space.u2re.cwsp", "/releases/android/latest.json", "cwsp.apk", true);
+            case "explorer":
+                return new UpdateChannel(
+                        "explorer",
+                        "space.u2re.explorer",
+                        "/releases/android/latest-explorer.json",
+                        "cwsp-explorer.apk",
+                        false);
+            case "document":
+                return new UpdateChannel(
+                        "document",
+                        "space.u2re.document",
+                        "/releases/android/latest-document.json",
+                        "cwsp-document.apk",
+                        false);
+            case "process":
+                return new UpdateChannel(
+                        "process",
+                        "space.u2re.process",
+                        "/releases/android/latest-process.json",
+                        "cwsp-process.apk",
+                        false);
+            default:
+                return new UpdateChannel(
+                        "launcher",
+                        context.getPackageName(),
+                        MANIFEST_PATH,
+                        DEFAULT_APK_NAME,
+                        false);
+        }
+    }
+
     /** Local package version + signing cert SHA-256 (for Settings / diagnostics). */
     static JSObject info(Context context) {
+        return info(context, new JSObject());
+    }
+
+    static JSObject info(Context context, JSObject payload) {
         JSObject r = base(true, "app:info");
         try {
-            long code = localVersionCode(context);
-            String name = localVersionName(context);
-            JSObject echo = localVersionEcho(context);
+            UpdateChannel ch = channelFor(context, payload != null ? payload : new JSObject());
+            long code = localVersionCode(context, ch.packageId);
+            String name = localVersionName(context, ch.packageId);
+            JSObject echo = localVersionEcho(context, ch.packageId);
+            echo.put("sku", ch.sku);
             r.put("echo", echo);
             r.put("versionCode", code);
             r.put("versionName", name);
@@ -95,26 +164,30 @@ final class AppUpdateHelper {
     static JSObject check(Context context, JSObject payload) {
         JSObject r = base(true, "app:update:check");
         try {
+            UpdateChannel ch = channelFor(context, payload);
             String source = str(payload, "source", "wan");
             String token = resolveToken(context, payload);
+            if (ch.tokenRequired && token.isEmpty()) {
+                return fail("app:update:check", "ecosystem token required for " + ch.sku + " updates");
+            }
             boolean allowInsecure = bool(payload, "allowInsecureTls", false);
             String base = resolveBaseUrl(source, str(payload, "endpointUrl", ""));
             if (base == null) {
                 return fail("app:update:check", "untrusted or empty update source");
             }
 
-            String manifestUrl = base + MANIFEST_PATH;
+            String manifestUrl = base + ch.manifestPath;
             JSONObject manifest = fetchJson(manifestUrl, token, allowInsecure);
             long remoteCode = manifest.optLong("versionCode", 0);
             String remoteName = manifest.optString("versionName", "");
-            String apkRel = manifest.optString("apk", manifest.optString("apkUrl", DEFAULT_APK_NAME));
+            String apkRel = manifest.optString("apk", manifest.optString("apkUrl", ch.defaultApk));
             String sha256 = manifest.optString("sha256", "");
             String remoteSig = normalizeHex(manifest.optString("signatureSha256", ""));
             long size = manifest.optLong("size", 0);
 
-            long localCode = localVersionCode(context);
-            String localName = localVersionName(context);
-            Set<String> localCerts = localSigningCerts(context);
+            long localCode = localVersionCode(context, ch.packageId);
+            String localName = localVersionName(context, ch.packageId);
+            Set<String> localCerts = localSigningCerts(context, ch.packageId);
             String localSig = localCerts.isEmpty() ? "" : localCerts.iterator().next();
             boolean updateAvailable = remoteCode > localCode;
             boolean signatureCompatible =
@@ -123,6 +196,8 @@ final class AppUpdateHelper {
                             || localCerts.contains(remoteSig);
 
             JSObject echo = new JSObject();
+            echo.put("sku", ch.sku);
+            echo.put("packageId", ch.packageId);
             echo.put("source", source);
             echo.put("baseUrl", base);
             echo.put("manifestUrl", manifestUrl);
@@ -156,8 +231,12 @@ final class AppUpdateHelper {
     static JSObject install(Context context, Activity activity, JSObject payload) {
         JSObject r = base(true, "app:update:install");
         try {
+            UpdateChannel ch = channelFor(context, payload);
             String source = str(payload, "source", "wan");
             String token = resolveToken(context, payload);
+            if (ch.tokenRequired && token.isEmpty()) {
+                return fail("app:update:install", "ecosystem token required for " + ch.sku + " updates");
+            }
             boolean allowInsecure = bool(payload, "allowInsecureTls", false);
             String base = resolveBaseUrl(source, str(payload, "endpointUrl", ""));
             if (base == null) {
@@ -171,11 +250,11 @@ final class AppUpdateHelper {
                 );
             }
 
-            String manifestUrl = base + MANIFEST_PATH;
+            String manifestUrl = base + ch.manifestPath;
             JSONObject manifest = fetchJson(manifestUrl, token, allowInsecure);
             String apkField = manifest.optString("apkUrl", "");
             if (apkField.isEmpty()) {
-                String apkName = manifest.optString("apk", DEFAULT_APK_NAME);
+                String apkName = manifest.optString("apk", ch.defaultApk);
                 apkField = apkName.startsWith("http")
                         ? apkName
                         : "/releases/android/" + apkName.replaceFirst("^/+", "");
@@ -186,7 +265,7 @@ final class AppUpdateHelper {
             }
 
             long remoteCode = manifest.optLong("versionCode", 0);
-            long localCode = localVersionCode(context);
+            long localCode = localVersionCode(context, ch.packageId);
             if (remoteCode > 0 && remoteCode <= localCode) {
                 return fail(
                         "app:update:install",
@@ -206,8 +285,8 @@ final class AppUpdateHelper {
                 }
             }
 
-            // INVARIANT: same signing certificate as installed package (Android update rule).
-            Set<String> localCerts = localSigningCerts(context);
+            // INVARIANT: same signing certificate as the target package (or launcher, if sibling missing).
+            Set<String> localCerts = localSigningCerts(context, ch.packageId);
             Set<String> apkCerts = archiveSigningCerts(context, apkFile);
             if (localCerts.isEmpty() || apkCerts.isEmpty()) {
                 //noinspection ResultOfMethodCallIgnored
@@ -229,7 +308,7 @@ final class AppUpdateHelper {
             if (!expectSig.isEmpty() && !apkCerts.contains(expectSig)) {
                 //noinspection ResultOfMethodCallIgnored
                 apkFile.delete();
-                return fail("app:update:install", "APK signature does not match latest-launcher.json signatureSha256");
+                return fail("app:update:install", "APK signature does not match " + ch.manifestPath + " signatureSha256");
             }
 
             Uri uri = FileProvider.getUriForFile(
@@ -248,6 +327,8 @@ final class AppUpdateHelper {
             }
 
             JSObject echo = new JSObject();
+            echo.put("sku", ch.sku);
+            echo.put("packageId", ch.packageId);
             echo.put("source", source);
             echo.put("baseUrl", base);
             echo.put("apkUrl", apkUrl);
@@ -265,14 +346,14 @@ final class AppUpdateHelper {
         }
     }
 
-    private static JSObject localVersionEcho(Context context) throws Exception {
+    private static JSObject localVersionEcho(Context context, String packageId) throws Exception {
         JSObject echo = new JSObject();
-        long code = localVersionCode(context);
-        echo.put("packageId", context.getPackageName());
+        long code = localVersionCode(context, packageId);
+        echo.put("packageId", packageId);
         // Capacitor JSObject prefers int/double for numeric getInteger.
         echo.put("versionCode", code > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) code);
-        echo.put("versionName", localVersionName(context));
-        Set<String> certs = localSigningCerts(context);
+        echo.put("versionName", localVersionName(context, packageId));
+        Set<String> certs = localSigningCerts(context, packageId);
         String primary = certs.isEmpty() ? "" : certs.iterator().next();
         echo.put("signatureSha256", primary);
         com.getcapacitor.JSArray arr = new com.getcapacitor.JSArray();
@@ -306,9 +387,12 @@ final class AppUpdateHelper {
         return out;
     }
 
-    private static Set<String> localSigningCerts(Context context) throws Exception {
+    private static Set<String> localSigningCerts(Context context, String packageId) throws Exception {
         PackageManager pm = context.getPackageManager();
-        String pkg = context.getPackageName();
+        String pkg = packageId != null && !packageId.isEmpty() ? packageId : context.getPackageName();
+        if (!isPackagePresent(pm, pkg)) {
+            pkg = context.getPackageName();
+        }
         if (Build.VERSION.SDK_INT >= 28) {
             PackageInfo info = pm.getPackageInfo(pkg, PackageManager.GET_SIGNING_CERTIFICATES);
             SigningInfo si = info.signingInfo;
@@ -421,19 +505,38 @@ final class AppUpdateHelper {
         return token != null ? token.trim() : "";
     }
 
-    private static long localVersionCode(Context context) throws PackageManager.NameNotFoundException {
-        PackageManager pm = context.getPackageManager();
-        PackageInfo info = pm.getPackageInfo(context.getPackageName(), 0);
-        if (Build.VERSION.SDK_INT >= 28) {
-            return info.getLongVersionCode();
+    private static boolean isPackagePresent(PackageManager pm, String pkg) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0));
+            } else {
+                pm.getPackageInfo(pkg, 0);
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
         }
-        //noinspection deprecation
-        return info.versionCode;
     }
 
-    private static String localVersionName(Context context) {
+    private static long localVersionCode(Context context, String packageId) {
+        String pkg = packageId != null && !packageId.isEmpty() ? packageId : context.getPackageName();
         try {
-            PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+            PackageManager pm = context.getPackageManager();
+            PackageInfo info = pm.getPackageInfo(pkg, 0);
+            if (Build.VERSION.SDK_INT >= 28) {
+                return info.getLongVersionCode();
+            }
+            //noinspection deprecation
+            return info.versionCode;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static String localVersionName(Context context, String packageId) {
+        String pkg = packageId != null && !packageId.isEmpty() ? packageId : context.getPackageName();
+        try {
+            PackageInfo info = context.getPackageManager().getPackageInfo(pkg, 0);
             return info.versionName != null ? info.versionName : "";
         } catch (Exception e) {
             return "";

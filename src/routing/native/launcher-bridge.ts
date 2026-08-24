@@ -57,6 +57,22 @@ export async function launcherList(query?: string): Promise<LauncherAppEntry[]> 
     return Array.isArray(apps) ? apps : [];
 }
 
+/** Which Android packages are installed (sibling SKU settings tabs). */
+export async function launcherHasPackages(pkgs: string[]): Promise<Record<string, boolean>> {
+    const packages = [
+        ...new Set(pkgs.map((p) => String(p || "").trim()).filter(Boolean))
+    ];
+    if (!packages.length) return {};
+    const r = await invokeCwsPlatformIPC({
+        channel: "launcher:has-packages",
+        payload: { packages }
+    });
+    if (!r.ok) return {};
+    const echo = r.echo as { installed?: Record<string, boolean> } | undefined;
+    const installed = echo?.installed;
+    return installed && typeof installed === "object" ? installed : {};
+}
+
 export async function launcherLaunch(pkg: string, component?: string): Promise<boolean> {
     const packageName = String(pkg || "").trim();
     if (!packageName) return false;

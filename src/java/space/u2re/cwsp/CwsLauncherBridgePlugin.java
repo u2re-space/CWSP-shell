@@ -215,6 +215,15 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 String query = payload != null ? payload.getString("query", "") : "";
                 return LauncherCoordinator.listApps(getContext(), query);
             }
+            case "launcher:has-packages": {
+                Object packages = null;
+                try {
+                    packages = payload != null ? payload.get("packages") : null;
+                } catch (Exception ignored) {
+                    packages = null;
+                }
+                return LauncherCoordinator.hasPackages(getContext(), packages);
+            }
             case "launcher:launch": {
                 String packageName = payload != null ? payload.getString("packageName", "") : "";
                 String componentName = payload != null ? payload.getString("componentName", "") : "";
@@ -378,7 +387,7 @@ public class CwsLauncherBridgePlugin extends Plugin {
             }
             case "app:info":
             case "app:version":
-                return AppUpdateHelper.info(getContext());
+                return AppUpdateHelper.info(getContext(), payload != null ? payload : new JSObject());
             case "app:update:check":
                 return AppUpdateHelper.check(getContext(), payload);
             case "app:update:install":

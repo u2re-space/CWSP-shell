@@ -33,6 +33,8 @@ import android.util.Log;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 
+import org.json.JSONArray;
+
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -325,6 +327,74 @@ public final class LauncherCoordinator {
             return listAppsViaLauncherApps(ctx, query);
         }
         return listAppsViaPackageManager(ctx, query);
+    }
+
+    /**
+     * Batch {@link PackageManager#getPackageInfo} — sibling SKU settings tabs
+     * ({@code space.u2re.explorer} / document / process / transfer).
+     */
+    public static JSObject hasPackages(Context ctx, Object rawPackages) {
+        if (ctx == null) {
+            return fail("launcher:has-packages", "context-null");
+        }
+        PackageManager pm = ctx.getPackageManager();
+        JSObject installed = new JSObject();
+        try {
+            for (String pkg : readPackageNames(rawPackages)) {
+                installed.put(pkg, isPackageInstalled(pm, pkg));
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "hasPackages failed", e);
+            return fail(
+                    "launcher:has-packages",
+                    e.getMessage() != null ? e.getMessage() : "has-packages-failed");
+        }
+        JSObject echo = new JSObject();
+        echo.put("installed", installed);
+        JSObject r = base(true, "launcher:has-packages");
+        r.put("echo", echo);
+        return r;
+    }
+
+    /** Capacitor {@code JSObject.get} yields {@link JSONArray}, not {@code getJSArray}. */
+    private static List<String> readPackageNames(Object rawPackages) {
+        List<String> pkgs = new ArrayList<>();
+        if (rawPackages == null) return pkgs;
+        if (rawPackages instanceof JSONArray) {
+            JSONArray arr = (JSONArray) rawPackages;
+            for (int i = 0; i < arr.length(); i++) {
+                String pkg = String.valueOf(arr.opt(i)).trim();
+                if (!pkg.isEmpty() && !"null".equals(pkg)) pkgs.add(pkg);
+            }
+            return pkgs;
+        }
+        if (rawPackages instanceof Iterable) {
+            for (Object item : (Iterable<?>) rawPackages) {
+                String pkg = String.valueOf(item).trim();
+                if (!pkg.isEmpty() && !"null".equals(pkg)) pkgs.add(pkg);
+            }
+            return pkgs;
+        }
+        for (String part : String.valueOf(rawPackages).split("[,\\s]+")) {
+            String pkg = part.trim();
+            if (!pkg.isEmpty()) pkgs.add(pkg);
+        }
+        return pkgs;
+    }
+
+    private static boolean isPackageInstalled(PackageManager pm, String pkg) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0));
+            } else {
+                pm.getPackageInfo(pkg, 0);
+            }
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public static JSObject launchApp(Context ctx, String packageName, String componentName) {
