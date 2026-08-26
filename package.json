@@ -102,5 +102,5 @@
         "vite-plugin-static-copy": ">=3.1.1",
         "vite-tsconfig-paths": ">=5.1.4"
     },
-    "version": "0.0.81"
+    "version": "0.0.84"
 }
