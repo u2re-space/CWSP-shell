@@ -2,8 +2,8 @@
  * Filename: AppUpdateHelper.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/AppUpdateHelper.java
  * FIND:apk-update
- * Change date and time: 23.09.20_23.08.2026
- * Reason for changes: Launcher channel is public — do not require ecosystem token.
+ * Change date and time: 15.15.00_27.08.2026
+ * Reason for changes: Same-version sideload + first install when sibling VERSION_CODE stays 1.
  */
 
 package space.u2re.cwsp;
@@ -60,7 +60,9 @@ import javax.net.ssl.X509TrustManager;
  *
  * <p>INVARIANT: self-update stays on {@code latest-launcher.json} + {@code cwsp-launcher.apk}.
  * Launcher settings sibling sections may pass {@code sku=transfer|explorer|document|process}
- * to update that installed package — still same-signer, allowlisted host.</p>
+ * to update that installed package — still same-signer when the target is already installed.
+ * Missing sibling packages sideload without pretending the launcher version is theirs.
+ * Explicit install may reinstall the same {@code versionCode} (fleet SKUs stay at 1 until bumped).</p>
  *
  * <p>WHY: launcher artifacts are public on the gateway — ecosystem token is optional here.</p>
  */
@@ -94,6 +96,15 @@ final class AppUpdateHelper {
         }
     }
 
+    private static String hostSku() {
+        try {
+            String sku = String.valueOf(BuildConfig.CWSP_SKU).trim().toLowerCase(Locale.ROOT);
+            return sku.isEmpty() ? "launcher" : sku;
+        } catch (Throwable ignored) {
+            return "launcher";
+        }
+    }
+
     private static UpdateChannel channelFor(Context context, JSObject payload) {
         String sku = str(payload, "sku", "").trim().toLowerCase(Locale.ROOT);
         if (sku.isEmpty()) {
@@ -102,7 +113,12 @@ final class AppUpdateHelper {
             else if ("space.u2re.explorer".equals(pkg)) sku = "explorer";
             else if ("space.u2re.document".equals(pkg)) sku = "document";
             else if ("space.u2re.process".equals(pkg)) sku = "process";
-            else sku = "launcher";
+            else sku = hostSku();
+        }
+        // INVARIANT: only the launcher APK may update a sibling package. Sibling APKs stay on self.
+        String host = hostSku();
+        if (!"launcher".equals(host) && !sku.equals(host)) {
+            sku = host;
         }
         switch (sku) {
             case "transfer":
@@ -148,13 +164,16 @@ final class AppUpdateHelper {
         JSObject r = base(true, "app:info");
         try {
             UpdateChannel ch = channelFor(context, payload != null ? payload : new JSObject());
-            long code = localVersionCode(context, ch.packageId);
-            String name = localVersionName(context, ch.packageId);
-            JSObject echo = localVersionEcho(context, ch.packageId);
+            boolean installed = isPackagePresent(context.getPackageManager(), ch.packageId);
+            long code = installed ? localVersionCode(context, ch.packageId) : 0;
+            String name = installed ? localVersionName(context, ch.packageId) : "";
+            JSObject echo = localVersionEcho(context, ch.packageId, installed);
             echo.put("sku", ch.sku);
+            echo.put("installed", installed);
             r.put("echo", echo);
             r.put("versionCode", code);
             r.put("versionName", name);
+            r.put("installed", installed);
             return r;
         } catch (Exception e) {
             return fail("app:info", e.getMessage() != null ? e.getMessage() : e.toString());
@@ -185,15 +204,21 @@ final class AppUpdateHelper {
             String remoteSig = normalizeHex(manifest.optString("signatureSha256", ""));
             long size = manifest.optLong("size", 0);
 
-            long localCode = localVersionCode(context, ch.packageId);
-            String localName = localVersionName(context, ch.packageId);
-            Set<String> localCerts = localSigningCerts(context, ch.packageId);
-            String localSig = localCerts.isEmpty() ? "" : localCerts.iterator().next();
-            boolean updateAvailable = remoteCode > localCode;
+            boolean installed = isPackagePresent(context.getPackageManager(), ch.packageId);
+            long localCode = installed ? localVersionCode(context, ch.packageId) : 0;
+            String localName = installed ? localVersionName(context, ch.packageId) : "";
+            Set<String> compareCerts = installed
+                    ? localSigningCerts(context, ch.packageId, false)
+                    : localSigningCerts(context, context.getPackageName(), false);
+            String localSig = compareCerts.isEmpty() ? "" : compareCerts.iterator().next();
+            boolean newer = remoteCode > localCode;
             boolean signatureCompatible =
                     remoteSig.isEmpty()
-                            || localCerts.isEmpty()
-                            || localCerts.contains(remoteSig);
+                            || !installed
+                            || compareCerts.isEmpty()
+                            || compareCerts.contains(remoteSig);
+            // WHY: sibling APKs stay at versionCode 1 — Check must still offer first install / same-version sideload.
+            boolean updateAvailable = (!installed || newer) && signatureCompatible;
 
             JSObject echo = new JSObject();
             echo.put("sku", ch.sku);
@@ -201,6 +226,7 @@ final class AppUpdateHelper {
             echo.put("source", source);
             echo.put("baseUrl", base);
             echo.put("manifestUrl", manifestUrl);
+            echo.put("installed", installed);
             echo.put("localVersionCode", localCode);
             echo.put("localVersionName", localName);
             echo.put("localSignatureSha256", localSig);
@@ -208,19 +234,20 @@ final class AppUpdateHelper {
             echo.put("remoteVersionName", remoteName);
             echo.put("remoteSignatureSha256", remoteSig);
             echo.put("signatureCompatible", signatureCompatible);
-            echo.put("updateAvailable", updateAvailable && signatureCompatible);
+            echo.put("updateAvailable", updateAvailable);
+            echo.put("canSideload", signatureCompatible);
             echo.put("apk", apkRel);
             echo.put("sha256", sha256);
             echo.put("size", size);
             echo.put("canRequestPackageInstalls", canRequestPackageInstalls(context));
-            if (updateAvailable && !signatureCompatible) {
+            if (installed && newer && !signatureCompatible) {
                 echo.put(
                         "warning",
                         "Remote APK signing certificate differs from installed app — update blocked"
                 );
             }
             r.put("echo", echo);
-            r.put("updateAvailable", updateAvailable && signatureCompatible);
+            r.put("updateAvailable", updateAvailable);
             return r;
         } catch (Exception e) {
             Log.w(TAG, "check failed", e);
@@ -265,11 +292,13 @@ final class AppUpdateHelper {
             }
 
             long remoteCode = manifest.optLong("versionCode", 0);
-            long localCode = localVersionCode(context, ch.packageId);
-            if (remoteCode > 0 && remoteCode <= localCode) {
+            boolean installed = isPackagePresent(context.getPackageManager(), ch.packageId);
+            long localCode = installed ? localVersionCode(context, ch.packageId) : 0;
+            // INVARIANT: block downgrade only. Equal versionCode is a sideload/reinstall (explorer/document/process stay at 1).
+            if (installed && remoteCode > 0 && remoteCode < localCode) {
                 return fail(
                         "app:update:install",
-                        "Remote versionCode " + remoteCode + " is not newer than local " + localCode
+                        "Remote versionCode " + remoteCode + " is older than local " + localCode
                 );
             }
 
@@ -285,25 +314,31 @@ final class AppUpdateHelper {
                 }
             }
 
-            // INVARIANT: same signing certificate as the target package (or launcher, if sibling missing).
-            Set<String> localCerts = localSigningCerts(context, ch.packageId);
             Set<String> apkCerts = archiveSigningCerts(context, apkFile);
-            if (localCerts.isEmpty() || apkCerts.isEmpty()) {
+            if (apkCerts.isEmpty()) {
                 //noinspection ResultOfMethodCallIgnored
                 apkFile.delete();
-                return fail("app:update:install", "could not read APK/package signing certificates");
+                return fail("app:update:install", "could not read APK signing certificates");
             }
-            boolean sameSigner = false;
-            for (String c : apkCerts) {
-                if (localCerts.contains(c)) {
-                    sameSigner = true;
-                    break;
+            if (installed) {
+                Set<String> localCerts = localSigningCerts(context, ch.packageId, false);
+                if (localCerts.isEmpty()) {
+                    //noinspection ResultOfMethodCallIgnored
+                    apkFile.delete();
+                    return fail("app:update:install", "could not read installed package signing certificates");
                 }
-            }
-            if (!sameSigner) {
-                //noinspection ResultOfMethodCallIgnored
-                apkFile.delete();
-                return fail("app:update:install", "APK signing certificate does not match installed app");
+                boolean sameSigner = false;
+                for (String c : apkCerts) {
+                    if (localCerts.contains(c)) {
+                        sameSigner = true;
+                        break;
+                    }
+                }
+                if (!sameSigner) {
+                    //noinspection ResultOfMethodCallIgnored
+                    apkFile.delete();
+                    return fail("app:update:install", "APK signing certificate does not match installed app");
+                }
             }
             if (!expectSig.isEmpty() && !apkCerts.contains(expectSig)) {
                 //noinspection ResultOfMethodCallIgnored
@@ -336,6 +371,7 @@ final class AppUpdateHelper {
             echo.put("size", apkFile.length());
             echo.put("remoteVersionCode", remoteCode);
             echo.put("localVersionCode", localCode);
+            echo.put("installed", installed);
             echo.put("signatureVerified", true);
             echo.put("launchedInstaller", true);
             r.put("echo", echo);
@@ -346,14 +382,18 @@ final class AppUpdateHelper {
         }
     }
 
-    private static JSObject localVersionEcho(Context context, String packageId) throws Exception {
+    private static JSObject localVersionEcho(Context context, String packageId, boolean installed)
+            throws Exception {
         JSObject echo = new JSObject();
-        long code = localVersionCode(context, packageId);
         echo.put("packageId", packageId);
+        echo.put("installed", installed);
+        long code = installed ? localVersionCode(context, packageId) : 0;
         // Capacitor JSObject prefers int/double for numeric getInteger.
         echo.put("versionCode", code > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) code);
-        echo.put("versionName", localVersionName(context, packageId));
-        Set<String> certs = localSigningCerts(context, packageId);
+        echo.put("versionName", installed ? localVersionName(context, packageId) : "");
+        Set<String> certs = installed
+                ? localSigningCerts(context, packageId, false)
+                : new LinkedHashSet<String>();
         String primary = certs.isEmpty() ? "" : certs.iterator().next();
         echo.put("signatureSha256", primary);
         com.getcapacitor.JSArray arr = new com.getcapacitor.JSArray();
@@ -387,10 +427,12 @@ final class AppUpdateHelper {
         return out;
     }
 
-    private static Set<String> localSigningCerts(Context context, String packageId) throws Exception {
+    private static Set<String> localSigningCerts(Context context, String packageId, boolean fallbackToHost)
+            throws Exception {
         PackageManager pm = context.getPackageManager();
         String pkg = packageId != null && !packageId.isEmpty() ? packageId : context.getPackageName();
         if (!isPackagePresent(pm, pkg)) {
+            if (!fallbackToHost) return new LinkedHashSet<>();
             pkg = context.getPackageName();
         }
         if (Build.VERSION.SDK_INT >= 28) {

@@ -118,6 +118,12 @@ function projectSku(skuName) {
             }
             copyTree(path.join(launcherRes, name), path.join(skuRes, name));
         }
+        // WHY: SKU splash.xml (solid colorPrimary) + launcher splash.png = duplicate @drawable/splash.
+        const splashXml = path.join(skuRes, "drawable", "splash.xml");
+        const splashPng = path.join(skuRes, "drawable", "splash.png");
+        if (fs.existsSync(splashXml) && fs.existsSync(splashPng)) {
+            fs.unlinkSync(splashPng);
+        }
     }
 
     const javaDir = posixRel(android, path.join(SHELL_ROOT, "src/java/space"));

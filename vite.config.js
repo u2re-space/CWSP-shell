@@ -272,6 +272,10 @@ const createCapacitorLauncherConfig = async (mode) => {
             replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/index.ts")
         },
         {
+            find: /^@fest-lib\/lure\/markdown-assets$/,
+            replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/markdown-assets.ts")
+        },
+        {
             find: "@fest-lib/fl-ui",
             replacement: resolve(workspaceRoot, "modules/projects/fl.ui/src/index.ts")
         }
