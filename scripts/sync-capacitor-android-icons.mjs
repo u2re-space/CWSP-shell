@@ -3,8 +3,8 @@
  * FullPath: apps/CWSP-shell/scripts/sync-capacitor-android-icons.mjs
  * FIND:sku
  * TAG:sku,apk-update
- * Change date and time: 15.35.00_27.08.2026
- * Reason for changes: Sibling APKs use src/pwa/icons (user art), not Phosphor glyph stamps.
+ * Change date and time: 16.40.00_27.08.2026
+ * Reason for changes: Adaptive fg stays in the 72dp keyline so OEM shapes do not clip the glyph.
  *
  * Usage:
  *   node sync-capacitor-android-icons.mjs [--app /path/to/CWSP-<sku>]
@@ -34,6 +34,9 @@ const FOREGROUND_SIZES = {
     xxhdpi: 324,
     xxxhdpi: 432
 };
+
+/** WHY: OEM masks show the inner 72dp of the 108dp layer; full-bleed PWA art gets clipped. */
+const ADAPTIVE_SAFE_RATIO = 72 / 108;
 
 const STAT_SIZES = {
     mdpi: 24,
@@ -98,9 +101,21 @@ function sampleBackground(src) {
     return "#111111";
 }
 
-function resizePng(src, dest, size) {
+function writePngOnCanvas(src, dest, canvas, contentRatio = 1) {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
-    runMagick([src, "-background", "none", "-gravity", "center", "-resize", `${size}x${size}`, dest]);
+    const inner = Math.max(1, Math.round(canvas * contentRatio));
+    runMagick([
+        src,
+        "-background", "none",
+        "-gravity", "center",
+        "-resize", `${inner}x${inner}`,
+        "-extent", `${canvas}x${canvas}`,
+        dest
+    ]);
+}
+
+function resizePng(src, dest, size) {
+    writePngOnCanvas(src, dest, size, 1);
 }
 
 function writeBackground(resRoot, hex) {
@@ -130,8 +145,8 @@ function syncLauncherIcons(appRoot) {
 
     for (const [density, size] of Object.entries(FOREGROUND_SIZES)) {
         const dir = path.join(resRoot, `mipmap-${density}`);
-        resizePng(maskableSrc, path.join(dir, "ic_launcher_foreground.png"), size);
-        resizePng(iconSrc, path.join(dir, "ic_launcher_monochrome.png"), size);
+        writePngOnCanvas(maskableSrc, path.join(dir, "ic_launcher_foreground.png"), size, ADAPTIVE_SAFE_RATIO);
+        writePngOnCanvas(iconSrc, path.join(dir, "ic_launcher_monochrome.png"), size, ADAPTIVE_SAFE_RATIO);
     }
 
     for (const [density, size] of Object.entries(STAT_SIZES)) {
