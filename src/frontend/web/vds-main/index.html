@@ -8,7 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="./pwa/icons/icon.svg" />
     <link rel="icon" type="image/png" sizes="512x512" href="./pwa/icons/icon.png" />
     <!-- WHY: iOS home-screen icon (does not use manifest icons). -->
-    <link rel="apple-touch-icon" href="./pwa/icons/icon.png" />
+    <link rel="apple-touch-icon" href="./pwa/icons/apple-touch-icon.png" />
     <!-- WHY: relative so u2re.space root SPA resolves under Vite base "./". -->
     <link rel="manifest" href="./pwa/manifest.json" />
     <!-- WHY: warm surface for WCO; #007acc painted a blue control strip over light titlebars. -->
@@ -17,6 +17,39 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="description" content="CWSP-shell — U2RE environment workspace" />
+    <script>
+        // WHY: stale unhashed com/app.js binds `__vitePreload` to the wrong export.
+        (function () {
+            var KEY = "cw-shell-preload-bust";
+            function stale(msg) {
+                return /export named ['"]In['"]|__vitePreload|catch is not a function/i.test(String(msg || ""));
+            }
+            function bust() {
+                if (sessionStorage.getItem(KEY)) return;
+                sessionStorage.setItem(KEY, "1");
+                var done = function () { location.reload(); };
+                var sw = navigator.serviceWorker;
+                var unreg = sw && sw.getRegistrations
+                    ? sw.getRegistrations().then(function (regs) {
+                        return Promise.all(regs.map(function (r) { return r.unregister(); }));
+                    })
+                    : Promise.resolve();
+                var clear = self.caches
+                    ? caches.keys().then(function (keys) {
+                        return Promise.all(keys.filter(function (k) {
+                            return /workbox|precache|assets-cache/i.test(k);
+                        }).map(function (k) { return caches.delete(k); }));
+                    })
+                    : Promise.resolve();
+                Promise.all([unreg, clear]).then(done).catch(done);
+            }
+            addEventListener("error", function (e) { if (stale(e && e.message)) bust(); });
+            addEventListener("unhandledrejection", function (e) {
+                var r = e && e.reason;
+                if (stale(r && r.message ? r.message : r)) bust();
+            });
+        })();
+    </script>
     <style>
         html, body { margin: 0; padding: 0; inline-size: 100%; block-size: 100%; overflow: hidden; }
         #app {

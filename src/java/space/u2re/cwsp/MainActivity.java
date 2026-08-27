@@ -199,11 +199,71 @@ public class MainActivity extends BridgeActivity {
             return;
         }
         JSObject pin = extractPinFromIntent(intent);
-        if (pin == null) return;
-        Log.i(TAG, "pin-shortcut intent — " + pin.toString());
-        LauncherCoordinator.stashPendingPin(this, pin);
-        notifyLauncherPinShortcut(pin);
-        clearTransientIntent(intent);
+        JSObject share = extractShareFromIntent(intent);
+        boolean shareHasLocalUri = shareHasLocalUri(share);
+        if (share != null && (shareHasLocalUri || pin == null)) {
+            Log.i(TAG, "share-intent — pending file/text");
+            LauncherCoordinator.stashPendingShare(this, share);
+            notifyShareIntent(share);
+        }
+        if (pin != null) {
+            Log.i(TAG, "pin-shortcut intent — " + pin.toString());
+            LauncherCoordinator.stashPendingPin(this, pin);
+            notifyLauncherPinShortcut(pin);
+        }
+        if (share != null || pin != null) clearTransientIntent(intent);
+    }
+
+    private static boolean shareHasLocalUri(JSObject share) {
+        if (share == null || !share.has("uri")) return false;
+        try {
+            String uri = String.valueOf(share.get("uri")).trim().toLowerCase(Locale.US);
+            return uri.startsWith("content:") || uri.startsWith("file:");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * SEND / VIEW / PROCESS_TEXT → JS SKU pipeline. Bytes stay on disk
+     * ({@link LauncherCoordinator#stashPendingShare}); the event is metadata only.
+     */
+    private static JSObject extractShareFromIntent(Intent intent) {
+        if (intent == null) return null;
+        String action = intent.getAction();
+        if (action == null) return null;
+        boolean send = Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action);
+        boolean view = Intent.ACTION_VIEW.equals(action);
+        boolean process = Intent.ACTION_PROCESS_TEXT.equals(action);
+        if (!send && !view && !process) return null;
+
+        JSObject share = new JSObject();
+        String text = intent.getStringExtra(Intent.EXTRA_TEXT);
+        if (process) {
+            CharSequence pt = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT);
+            if (pt != null) text = pt.toString();
+        }
+        String title = firstNonEmpty(
+                intent.getStringExtra(Intent.EXTRA_TITLE),
+                intent.getStringExtra(Intent.EXTRA_SUBJECT));
+        if (text != null && !text.trim().isEmpty()) share.put("text", text.trim());
+        if (title != null && !title.trim().isEmpty()) share.put("title", title.trim());
+
+        Uri uri = extractDocumentUri(intent);
+        if (uri != null) {
+            String raw = uri.toString();
+            if (raw != null && !raw.isEmpty()) {
+                share.put("uri", raw);
+                share.put("url", raw);
+                String name = uri.getLastPathSegment();
+                if (name != null && !name.isEmpty()) share.put("name", name);
+            }
+        }
+        String mime = intent.getType();
+        if (mime != null && !mime.trim().isEmpty()) share.put("mime", mime.trim());
+
+        if (!share.has("text") && !share.has("uri")) return null;
+        return share;
     }
 
     private void clearTransientIntent(Intent intent) {
@@ -639,6 +699,33 @@ public class MainActivity extends BridgeActivity {
             }
         } catch (Exception e) {
             Log.w(TAG, "launcherHomePressed failed", e);
+        }
+    }
+
+    private void notifyShareIntent(JSObject share) {
+        try {
+            Bridge bridge = getBridge();
+            if (bridge == null) return;
+            /* WHY: metadata ping only — file bytes go through launcher:pending-share. */
+            JSObject slim = new JSObject();
+            slim.put("pending", true);
+            if (share != null) {
+                try {
+                    if (share.has("title")) slim.put("title", String.valueOf(share.get("title")));
+                    if (share.has("name")) slim.put("name", String.valueOf(share.get("name")));
+                    if (share.has("mime")) slim.put("mime", String.valueOf(share.get("mime")));
+                    if (share.has("text")) {
+                        String text = String.valueOf(share.get("text"));
+                        if (text.length() > 400) text = text.substring(0, 400);
+                        if (!text.isEmpty() && !"null".equals(text)) slim.put("text", text);
+                    }
+                } catch (Exception ignored) {
+                    /* metadata optional */
+                }
+            }
+            bridge.triggerWindowJSEvent("cws:shareIntent", slim.toString());
+        } catch (Exception e) {
+            Log.w(TAG, "cws:shareIntent notify failed", e);
         }
     }
 

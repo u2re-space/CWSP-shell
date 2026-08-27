@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { rewriteVitePreloadBinding } from "../shared/vite-chunk-placement.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repoRoot = path.dirname(path.dirname(root));
@@ -35,6 +36,11 @@ if (fs.existsSync(dest)) {
 
 for (const name of fs.readdirSync(src)) {
     fs.cpSync(path.join(src, name), path.join(dest, name), { recursive: true });
+}
+
+{
+    const n = rewriteVitePreloadBinding(dest);
+    if (n) console.log(`[stage-vds-main] rewrote ${n} vite-preload binding(s)`);
 }
 
 /**
@@ -124,16 +130,22 @@ if (!fs.existsSync(iconPng)) {
     console.log("[stage-vds-main] OK pwa/icons/icon.png");
 }
 
-// WHY: browsers and legacy PWA probes request /favicon.png|/favicon.svg at host root.
-const faviconSrc = path.join(repoRoot, "assets", "favicon.png");
-const pwaIcon = path.join(dest, "pwa", "icons", "icon.png");
-if (fs.existsSync(faviconSrc)) {
-    fs.cpSync(faviconSrc, path.join(dest, "favicon.png"));
-} else if (fs.existsSync(pwaIcon)) {
-    fs.cpSync(pwaIcon, path.join(dest, "favicon.png"));
-}
-if (fs.existsSync(path.join(dest, "pwa", "icons", "icon.svg"))) {
-    fs.cpSync(path.join(dest, "pwa", "icons", "icon.svg"), path.join(dest, "favicon.svg"));
+// WHY: browsers request /favicon.png|/favicon.svg|/favicon.ico at host root.
+// Prefer the SKU PWA icon — repo assets/favicon.png is the old shared mark.
+{
+    const icons = path.join(dest, "pwa", "icons");
+    const copyFav = (fromName, toName) => {
+        const from = path.join(icons, fromName);
+        if (!fs.existsSync(from)) return false;
+        fs.cpSync(from, path.join(dest, toName));
+        return true;
+    };
+    copyFav("icon.svg", "favicon.svg");
+    if (!copyFav("icon.png", "favicon.png")) {
+        const legacy = path.join(repoRoot, "assets", "favicon.png");
+        if (fs.existsSync(legacy)) fs.cpSync(legacy, path.join(dest, "favicon.png"));
+    }
+    if (!copyFav("favicon.ico", "favicon.ico")) copyFav("icon.ico", "favicon.ico");
 }
 
 /**

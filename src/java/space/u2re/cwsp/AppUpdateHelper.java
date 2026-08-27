@@ -2,8 +2,8 @@
  * Filename: AppUpdateHelper.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/AppUpdateHelper.java
  * FIND:apk-update
- * Change date and time: 15.15.00_27.08.2026
- * Reason for changes: Same-version sideload + first install when sibling VERSION_CODE stays 1.
+ * Change date and time: 18.05.00_27.08.2026
+ * Reason for changes: Detect updates by versionCode, versionName, or a newer published build.
  */
 
 package space.u2re.cwsp;
@@ -62,7 +62,8 @@ import javax.net.ssl.X509TrustManager;
  * Launcher settings sibling sections may pass {@code sku=transfer|explorer|document|process}
  * to update that installed package — still same-signer when the target is already installed.
  * Missing sibling packages sideload without pretending the launcher version is theirs.
- * Explicit install may reinstall the same {@code versionCode} (fleet SKUs stay at 1 until bumped).</p>
+ * Check treats a higher {@code versionCode}, a newer {@code versionName}, or a first install
+ * as available. Equal code + equal name is current (install still sideloads).</p>
  *
  * <p>WHY: launcher artifacts are public on the gateway — ecosystem token is optional here.</p>
  */
@@ -171,7 +172,7 @@ final class AppUpdateHelper {
             echo.put("sku", ch.sku);
             echo.put("installed", installed);
             r.put("echo", echo);
-            r.put("versionCode", code);
+            putVersionCode(r, "versionCode", code);
             r.put("versionName", name);
             r.put("installed", installed);
             return r;
@@ -197,8 +198,8 @@ final class AppUpdateHelper {
 
             String manifestUrl = base + ch.manifestPath;
             JSONObject manifest = fetchJson(manifestUrl, token, allowInsecure);
-            long remoteCode = manifest.optLong("versionCode", 0);
-            String remoteName = manifest.optString("versionName", "");
+            long remoteCode = optVersionCode(manifest);
+            String remoteName = optVersionName(manifest);
             String apkRel = manifest.optString("apk", manifest.optString("apkUrl", ch.defaultApk));
             String sha256 = manifest.optString("sha256", "");
             String remoteSig = normalizeHex(manifest.optString("signatureSha256", ""));
@@ -211,14 +212,25 @@ final class AppUpdateHelper {
                     ? localSigningCerts(context, ch.packageId, false)
                     : localSigningCerts(context, context.getPackageName(), false);
             String localSig = compareCerts.isEmpty() ? "" : compareCerts.iterator().next();
-            boolean newer = remoteCode > localCode;
+            boolean codeNewer = remoteCode > 0 && remoteCode > localCode;
+            boolean nameNewer = compareVersionName(remoteName, localName) > 0;
+            // WHY: gateway used to publish version.properties while the APK stayed at 1 — name/code both count.
+            boolean newer = codeNewer || nameNewer;
             boolean signatureCompatible =
                     remoteSig.isEmpty()
                             || !installed
                             || compareCerts.isEmpty()
                             || compareCerts.contains(remoteSig);
-            // WHY: sibling APKs stay at versionCode 1 — Check must still offer first install / same-version sideload.
             boolean updateAvailable = (!installed || newer) && signatureCompatible;
+            String reason = !installed
+                    ? "not-installed"
+                    : codeNewer
+                      ? "newer-code"
+                      : nameNewer
+                        ? "newer-name"
+                        : remoteCode > 0 && remoteCode < localCode
+                          ? "gateway-older"
+                          : "current";
 
             JSObject echo = new JSObject();
             echo.put("sku", ch.sku);
@@ -227,18 +239,19 @@ final class AppUpdateHelper {
             echo.put("baseUrl", base);
             echo.put("manifestUrl", manifestUrl);
             echo.put("installed", installed);
-            echo.put("localVersionCode", localCode);
+            putVersionCode(echo, "localVersionCode", localCode);
             echo.put("localVersionName", localName);
             echo.put("localSignatureSha256", localSig);
-            echo.put("remoteVersionCode", remoteCode);
+            putVersionCode(echo, "remoteVersionCode", remoteCode);
             echo.put("remoteVersionName", remoteName);
             echo.put("remoteSignatureSha256", remoteSig);
             echo.put("signatureCompatible", signatureCompatible);
             echo.put("updateAvailable", updateAvailable);
+            echo.put("reason", reason);
             echo.put("canSideload", signatureCompatible);
             echo.put("apk", apkRel);
             echo.put("sha256", sha256);
-            echo.put("size", size);
+            putVersionCode(echo, "size", size);
             echo.put("canRequestPackageInstalls", canRequestPackageInstalls(context));
             if (installed && newer && !signatureCompatible) {
                 echo.put(
@@ -291,10 +304,10 @@ final class AppUpdateHelper {
                 return fail("app:update:install", "apk url host not allowlisted");
             }
 
-            long remoteCode = manifest.optLong("versionCode", 0);
+            long remoteCode = optVersionCode(manifest);
             boolean installed = isPackagePresent(context.getPackageManager(), ch.packageId);
             long localCode = installed ? localVersionCode(context, ch.packageId) : 0;
-            // INVARIANT: block downgrade only. Equal versionCode is a sideload/reinstall (explorer/document/process stay at 1).
+            // INVARIANT: block downgrade only. Equal versionCode is a sideload/reinstall.
             if (installed && remoteCode > 0 && remoteCode < localCode) {
                 return fail(
                         "app:update:install",
@@ -368,9 +381,9 @@ final class AppUpdateHelper {
             echo.put("baseUrl", base);
             echo.put("apkUrl", apkUrl);
             echo.put("path", apkFile.getAbsolutePath());
-            echo.put("size", apkFile.length());
-            echo.put("remoteVersionCode", remoteCode);
-            echo.put("localVersionCode", localCode);
+            putVersionCode(echo, "size", apkFile.length());
+            putVersionCode(echo, "remoteVersionCode", remoteCode);
+            putVersionCode(echo, "localVersionCode", localCode);
             echo.put("installed", installed);
             echo.put("signatureVerified", true);
             echo.put("launchedInstaller", true);
@@ -388,9 +401,11 @@ final class AppUpdateHelper {
         echo.put("packageId", packageId);
         echo.put("installed", installed);
         long code = installed ? localVersionCode(context, packageId) : 0;
-        // Capacitor JSObject prefers int/double for numeric getInteger.
-        echo.put("versionCode", code > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) code);
+        // Capacitor JSObject prefers int/double — longs drop on the WebView side.
+        putVersionCode(echo, "versionCode", code);
+        putVersionCode(echo, "localVersionCode", code);
         echo.put("versionName", installed ? localVersionName(context, packageId) : "");
+        echo.put("localVersionName", installed ? localVersionName(context, packageId) : "");
         Set<String> certs = installed
                 ? localSigningCerts(context, packageId, false)
                 : new LinkedHashSet<String>();
@@ -400,6 +415,80 @@ final class AppUpdateHelper {
         for (String c : certs) arr.put(c);
         echo.put("signatureSha256All", arr);
         return echo;
+    }
+
+    /** Capacitor JSObject drops Long — always emit int. */
+    private static int asIntCode(long code) {
+        if (code <= 0) return 0;
+        if (code > Integer.MAX_VALUE) return Integer.MAX_VALUE;
+        return (int) code;
+    }
+
+    private static void putVersionCode(JSObject o, String key, long code) {
+        if (o == null || key == null) return;
+        o.put(key, asIntCode(code));
+    }
+
+    private static long optVersionCode(JSONObject manifest) {
+        if (manifest == null) return 0;
+        String[] keys = { "versionCode", "version_code", "code" };
+        for (String key : keys) {
+            if (!manifest.has(key) || manifest.isNull(key)) continue;
+            Object raw = manifest.opt(key);
+            if (raw instanceof Number) {
+                long n = ((Number) raw).longValue();
+                if (n > 0) return n;
+            }
+            String s = String.valueOf(raw == null ? "" : raw).trim();
+            if (s.isEmpty()) continue;
+            try {
+                long n = Long.parseLong(s.replaceAll("[^0-9].*$", ""));
+                if (n > 0) return n;
+            } catch (Exception ignored) {
+                /* next key */
+            }
+        }
+        return 0;
+    }
+
+    private static String optVersionName(JSONObject manifest) {
+        if (manifest == null) return "";
+        String[] keys = { "versionName", "version_name", "version" };
+        for (String key : keys) {
+            String v = manifest.optString(key, "").trim();
+            if (!v.isEmpty() && !"null".equalsIgnoreCase(v)) return v;
+        }
+        return "";
+    }
+
+    private static int[] parseVersionParts(String raw) {
+        String s = String.valueOf(raw == null ? "" : raw).trim();
+        if (s.isEmpty()) return new int[0];
+        String core = s.split("[+-]", 2)[0];
+        String[] bits = core.split("\\.");
+        int[] out = new int[bits.length];
+        for (int i = 0; i < bits.length; i++) {
+            try {
+                out[i] = Integer.parseInt(bits[i].replaceAll("[^0-9]", ""));
+            } catch (Exception e) {
+                out[i] = 0;
+            }
+        }
+        return out;
+    }
+
+    /** Semver-ish: 0.0.3 > 0.0.1. Empty names compare equal. */
+    private static int compareVersionName(String remote, String local) {
+        int[] a = parseVersionParts(remote);
+        int[] b = parseVersionParts(local);
+        if (a.length == 0 && b.length == 0) return 0;
+        int n = Math.max(a.length, b.length);
+        for (int i = 0; i < n; i++) {
+            int av = i < a.length ? a[i] : 0;
+            int bv = i < b.length ? b[i] : 0;
+            if (av != bv) return Integer.compare(av, bv);
+        }
+        return 0;
     }
 
     private static String normalizeHex(String raw) {
@@ -560,29 +649,47 @@ final class AppUpdateHelper {
         }
     }
 
+    private static long selfBuildVersionCode() {
+        try {
+            return BuildConfig.CWSP_VERSION_CODE;
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    private static String selfBuildVersionName() {
+        try {
+            String name = String.valueOf(BuildConfig.CWSP_VERSION_NAME).trim();
+            return name.isEmpty() || "null".equals(name) ? "" : name;
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
     private static long localVersionCode(Context context, String packageId) {
         String pkg = packageId != null && !packageId.isEmpty() ? packageId : context.getPackageName();
         try {
             PackageManager pm = context.getPackageManager();
             PackageInfo info = pm.getPackageInfo(pkg, 0);
-            if (Build.VERSION.SDK_INT >= 28) {
-                return info.getLongVersionCode();
-            }
-            //noinspection deprecation
-            return info.versionCode;
-        } catch (Exception e) {
-            return 0;
+            long code = Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
+            if (code > 0) return code;
+        } catch (Exception ignored) {
+            /* fall through */
         }
+        if (pkg.equals(context.getPackageName())) return selfBuildVersionCode();
+        return 0;
     }
 
     private static String localVersionName(Context context, String packageId) {
         String pkg = packageId != null && !packageId.isEmpty() ? packageId : context.getPackageName();
         try {
             PackageInfo info = context.getPackageManager().getPackageInfo(pkg, 0);
-            return info.versionName != null ? info.versionName : "";
-        } catch (Exception e) {
-            return "";
+            if (info.versionName != null && !info.versionName.isEmpty()) return info.versionName;
+        } catch (Exception ignored) {
+            /* fall through */
         }
+        if (pkg.equals(context.getPackageName())) return selfBuildVersionName();
+        return "";
     }
 
     private static boolean canRequestPackageInstalls(Context context) {

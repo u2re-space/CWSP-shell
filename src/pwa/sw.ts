@@ -1936,7 +1936,24 @@ registerRoute(
 );
 
 const OFFLINE_DOC_CANDIDATES = ["/", "/index.html", "/viewer", "/workcenter", "/explorer", "/settings"];
-const OFFLINE_WARMUP_PATHS = ["/", "/viewer", "/workcenter", "/explorer", "/settings"];
+
+/** FIND:sw-warmup Dedicated SKU hosts 302 foreign mounts (md /explorer → explorer.u2re.space). */
+const offlineWarmupPaths = (): string[] => {
+    let host = "";
+    try {
+        host = String(self.location.hostname || "").toLowerCase();
+    } catch {
+        host = "";
+    }
+    if (/(^|\.)md\.u2re\.space$/.test(host)) return ["/", "/viewer", "/settings"];
+    if (/(^|\.)explorer\.u2re\.space$/.test(host)) return ["/", "/explorer", "/settings"];
+    if (/(^|\.)(process|workcenter)\.u2re\.space$/.test(host)) return ["/", "/workcenter", "/process", "/settings"];
+    if (/(^|\.)(cwsp|transfer)\.u2re\.space$/.test(host)) return ["/", "/cwsp", "/settings"];
+    if (host === "u2re.space" || host === "www.u2re.space") {
+        return ["/", "/viewer", "/explorer", "/workcenter", "/process", "/settings"];
+    }
+    return ["/", "/index.html", "/settings"];
+};
 
 const createOfflineDocumentResponse = (pathname = "/"): Response => {
     const html = `<!doctype html>
@@ -1983,15 +2000,16 @@ const warmupOfflineNavigationCache = async (reason: "install" | "activate"): Pro
         const cache = await caches.open("default-cache");
         const origin = self.location.origin;
         await Promise.all(
-            OFFLINE_WARMUP_PATHS.map(async (path) => {
+            offlineWarmupPaths().map(async (path) => {
                 try {
                     const request = new Request(new URL(path, origin).toString(), {
                         method: "GET",
                         credentials: "same-origin",
                         cache: "no-store",
+                        redirect: "manual",
                     });
                     const response = await fetch(request);
-                    if (!response?.ok) {
+                    if (!response?.ok || response.type === "opaqueredirect") {
                         console.warn(`[SW] Warmup skipped (non-ok): ${path} status=${response?.status}`);
                         return;
                     }

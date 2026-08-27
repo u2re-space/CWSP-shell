@@ -77,6 +77,11 @@ const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\
  */
 export const rolldownCodeSplittingGroups = [
     {
+        name: "vite-preload",
+        test: /vite\/modulepreload-polyfill|vite\/preload-helper/,
+        priority: 200,
+    },
+    {
         name: "fest-polyfill",
         test: /\/shared\/fest\/polyfill\//,
         priority: 100,
@@ -118,6 +123,12 @@ function appSliceChunk(ns, rel) {
  */
 export function manualChunks(id) {
     const p = norm(id);
+
+    // WHY: Vite 8 hoisted `__vitePreload` (export `Un`) into unhashed `com/app.js`.
+    // A stale barrel then makes `__vitePreload(...).catch` throw (GLitElementImpl, etc.).
+    if (p.includes("vite/modulepreload-polyfill") || p.includes("vite/preload-helper") || p.includes("\0vite/")) {
+        return "vite-preload";
+    }
 
     // `fest/object` — must stay out of `com-app` (lure/fl-ui/DOM). Realpath is
     // `.../modules/projects/object.ts/src/...`; if this is assigned to `com-app`, `com-service`
@@ -224,6 +235,7 @@ export function manualChunks(id) {
 export function chunkFileNames(chunkInfo) {
     const n = chunkInfo.name || "chunk";
 
+    if (n === "vite-preload" || n.startsWith("vite-")) return `chunks/${n}-[hash].js`;
     if (n.startsWith("vendor-")) return `vendor/${n.slice("vendor-".length)}.js`;
     if (n.startsWith("fest-")) return `fest/${n.slice(5)}.js`;
     if (n.startsWith("view-")) return `views/${n.slice(5)}.js`;
@@ -310,6 +322,67 @@ export function relocateWorkerBundleAssetsPlugin() {
                 }
                 if (changed) writeFileSync(abs, text);
             }
+        },
+    };
+}
+
+/**
+ * @param {string} NAME — app slug for the main emitted CSS file
+ */
+const PRELOAD_FROM_APP_RE =
+    /import\s*\{\s*[\w$]+\s+as\s+__vitePreload\s*\}\s*from\s*["'][^"']*com\/app\.js["'];?\r?\n?/g;
+const PRELOAD_SHIM =
+    "const __vitePreload = (baseModule) => Promise.resolve().then(() => baseModule());\n";
+
+/** FIND:vite-preload Rolldown still binds `__vitePreload` to unhashed com/app.js. */
+export function rewriteVitePreloadBinding(outDir) {
+    if (!outDir || !existsSync(outDir)) return 0;
+    let n = 0;
+    const walk = (dir) => {
+        for (const name of readdirSync(dir)) {
+            const abs = join(dir, name);
+            let st;
+            try {
+                st = statSync(abs);
+            } catch {
+                continue;
+            }
+            if (st.isDirectory()) {
+                if (name === "node_modules" || name === ".git") continue;
+                walk(abs);
+                continue;
+            }
+            if (!/\.m?js$/.test(name)) continue;
+            const posix = abs.split("\\").join("/");
+            if (name === "app.js" && /\/com\/app\.js$/.test(posix)) continue;
+            let text;
+            try {
+                text = readFileSync(abs, "utf8");
+            } catch {
+                continue;
+            }
+            if (!text.includes("__vitePreload") || !text.includes("com/app.js")) continue;
+            const next = text.replace(PRELOAD_FROM_APP_RE, PRELOAD_SHIM);
+            if (next === text) continue;
+            writeFileSync(abs, next);
+            n += 1;
+        }
+    };
+    walk(outDir);
+    return n;
+}
+
+export function rewriteVitePreloadPlugin() {
+    let outDir = "";
+    return {
+        name: "cwsp-rewrite-vite-preload",
+        apply: "build",
+        configResolved(config) {
+            outDir = resolve(config.root, config.build.outDir || "dist");
+        },
+        closeBundle() {
+            const n = rewriteVitePreloadBinding(outDir);
+            if (n) console.log(`[vite-preload] rewrote ${n} hashed entr${n === 1 ? "y" : "ies"}`);
         },
     };
 }

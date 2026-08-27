@@ -7,6 +7,7 @@ import {
     manualChunks as distManualChunks,
     relocateWorkerBundleAssetsPlugin,
     rolldownCodeSplittingGroups,
+    rewriteVitePreloadPlugin,
 } from "./vite-chunk-placement.mjs";
 
 //
@@ -531,6 +532,7 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
         // SPA fallback for PWA routes (share-target, etc.)
         spaFallbackPlugin(),
         relocateWorkerBundleAssetsPlugin(),
+        rewriteVitePreloadPlugin(),
         /*jspmPlugin({
             downloadDeps: true,
             inputMap: true

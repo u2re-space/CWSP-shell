@@ -311,6 +311,12 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 return LauncherCoordinator.consumePendingPin(getContext());
             case "launcher:ack-pin":
                 return LauncherCoordinator.ackPendingPinResult(getContext());
+            case "launcher:pending-share":
+                return LauncherCoordinator.consumePendingShare(getContext());
+            case "launcher:read-share-file":
+                return LauncherCoordinator.readPendingShareFile(getContext());
+            case "launcher:ack-share":
+                return LauncherCoordinator.ackPendingShare(getContext());
             case "launcher:list-pinned":
                 return LauncherCoordinator.listPinnedShortcuts(getContext());
             /* WHY: Paste shortcut uses clipboard-device → clipboard:read-local. Slim launcher

@@ -2,22 +2,24 @@
  * Filename: publish-sibling-apk.mjs
  * FullPath: apps/CWSP-shell/scripts/publish-sibling-apk.mjs
  * FIND:apk-update
- * Change date: 14.30.00_27.08.2026
- * Reason: Stage explorer / document / process APKs next to launcher (same gateway releases dir).
+ * Change date: 18.05.00_27.08.2026
+ * Reason: Stage explorer / document / process APKs; manifest version comes from the APK binary.
  *
  * Usage:
  *   node scripts/publish-sibling-apk.mjs explorer|document|process [--apk path] [--dest path] [--remote] [--dry-run]
  *
- * Version SoT: apps/CWSP-<sku>/platforms/android/version.properties
+ * Version SoT: the APK binary (aapt dump). version.properties is a sanity check only.
  * Does not touch transfer latest.json / cwsp.apk or launcher latest-launcher.json.
  */
 
-import { createHash, X509Certificate } from "node:crypto";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { pickHighestVersionApk, resolvePublishVersion } from "./apk-release-version.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SHELL_ROOT = path.resolve(HERE, "..");
@@ -88,24 +90,6 @@ function parseArgs(argv) {
     return out;
 }
 
-function readVersionProps(propsPath) {
-    if (!fs.existsSync(propsPath)) {
-        throw new Error(`Missing version SoT: ${propsPath}`);
-    }
-    const map = {};
-    for (const line of fs.readFileSync(propsPath, "utf8").split(/\r?\n/)) {
-        const t = line.trim();
-        if (!t || t.startsWith("#")) continue;
-        const eq = t.indexOf("=");
-        if (eq < 0) continue;
-        map[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
-    }
-    return {
-        versionCode: Number(map.VERSION_CODE || 0),
-        versionName: String(map.VERSION_NAME || "0.0.0")
-    };
-}
-
 function sha256File(filePath) {
     const hash = createHash("sha256");
     hash.update(fs.readFileSync(filePath));
@@ -161,34 +145,13 @@ function extractApkSigningCertSha256(apkPath) {
     return "";
 }
 
-function newestApkUnder(dir) {
-    if (!fs.existsSync(dir)) return null;
-    let best = null;
-    let bestMtime = 0;
-    const walk = (d) => {
-        for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
-            const p = path.join(d, ent.name);
-            if (ent.isDirectory()) walk(p);
-            else if (ent.isFile() && ent.name.endsWith(".apk")) {
-                const st = fs.statSync(p);
-                if (st.mtimeMs >= bestMtime) {
-                    bestMtime = st.mtimeMs;
-                    best = p;
-                }
-            }
-        }
-    };
-    walk(dir);
-    return best;
-}
-
 function resolveApk(spec, explicit) {
     if (explicit) {
         const p = path.resolve(explicit);
         if (!fs.existsSync(p)) throw new Error(`APK not found: ${p}`);
         return p;
     }
-    const found = newestApkUnder(path.join(spec.appRoot, "build", "capacitor", "apk"));
+    const found = pickHighestVersionApk(path.join(spec.appRoot, "build", "capacitor", "apk"));
     if (found) return found;
     throw new Error(`No APK found under ${spec.appRoot}/build/capacitor/apk. Build first (npm run build:capacitor).`);
 }
@@ -267,14 +230,12 @@ function main() {
         throw new Error("sku must be explorer | document | process");
     }
 
-    const { versionCode, versionName } = readVersionProps(
-        path.join(spec.appRoot, "platforms", "android", "version.properties")
-    );
-    if (!versionCode) {
-        console.warn("[publish-apk] WARNING: VERSION_CODE missing — bump platforms/android/version.properties");
-    }
-
     const apkPath = resolveApk(spec, args.apk);
+    const { versionCode, versionName } = resolvePublishVersion({
+        apkPath,
+        propsPath: path.join(spec.appRoot, "platforms", "android", "version.properties"),
+        expectedPackageId: spec.packageId
+    });
     const signatureSha256 = extractApkSigningCertSha256(apkPath);
     const destDir = path.resolve(args.dest || process.env.CWS_ANDROID_RELEASES_DIR || TRANSFER_RELEASES);
     stageLocal({

@@ -36,6 +36,10 @@ import com.getcapacitor.JSObject;
 import org.json.JSONArray;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -1461,5 +1465,210 @@ public final class LauncherCoordinator {
     public static JSObject ackPendingPinResult(Context ctx) {
         ackPendingPin(ctx);
         return base(true, "launcher:ack-pin");
+    }
+
+    /**
+     * Share / VIEW / PROCESS_TEXT file stash. Bytes stay on disk — never on
+     * {@code evaluateJavascript}. JS reads via {@link #readPendingShareFile}.
+     */
+    private static final Object PENDING_SHARE_LOCK = new Object();
+    private static final String SHARE_PREFS_KEY = "pending_share_json";
+    private static final String SHARE_FILE_NAME = "pending-share.bin";
+    private static final long MAX_SHARE_BYTES = 32L * 1024 * 1024;
+    private static JSObject pendingShare = null;
+
+    private static File pendingShareFile(Context ctx) {
+        if (ctx == null) return null;
+        return new File(ctx.getApplicationContext().getFilesDir(), SHARE_FILE_NAME);
+    }
+
+    public static void stashPendingShare(Context ctx, JSObject share) {
+        if (share == null) return;
+        JSObject slim = new JSObject();
+        putClipped(slim, share, "text", 4000);
+        putClipped(slim, share, "title", BRIDGE_LABEL_MAX);
+        putClipped(slim, share, "name", 256);
+        putClipped(slim, share, "mime", 128);
+        putClipped(slim, share, "url", BRIDGE_URI_MAX);
+        slim.put("stashedAt", System.currentTimeMillis());
+        boolean copied = false;
+        if (ctx != null && share.has("uri")) {
+            try {
+                android.net.Uri uri = android.net.Uri.parse(String.valueOf(share.get("uri")));
+                copied = copyShareUriToDisk(ctx, uri);
+                if (copied && !slim.has("url")) {
+                    String u = uri.toString();
+                    if (u != null && u.length() <= BRIDGE_URI_MAX) slim.put("url", u);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "stashPendingShare copy failed", e);
+            }
+        }
+        slim.put("hasFile", copied);
+        synchronized (PENDING_SHARE_LOCK) {
+            pendingShare = slim;
+        }
+        if (ctx == null) return;
+        try {
+            ctx.getApplicationContext()
+                    .getSharedPreferences(PIN_PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(SHARE_PREFS_KEY, slim.toString())
+                    .apply();
+        } catch (Exception e) {
+            Log.w(TAG, "stashPendingShare persist failed", e);
+        }
+    }
+
+    private static boolean copyShareUriToDisk(Context ctx, android.net.Uri uri) {
+        if (ctx == null || uri == null) return false;
+        File dest = pendingShareFile(ctx);
+        if (dest == null) return false;
+        InputStream in = null;
+        FileOutputStream out = null;
+        try {
+            in = ctx.getContentResolver().openInputStream(uri);
+            if (in == null) return false;
+            out = new FileOutputStream(dest);
+            byte[] buf = new byte[16 * 1024];
+            long total = 0;
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                total += n;
+                if (total > MAX_SHARE_BYTES) {
+                    dest.delete();
+                    return false;
+                }
+                out.write(buf, 0, n);
+            }
+            out.flush();
+            return dest.length() > 0;
+        } catch (Exception e) {
+            Log.w(TAG, "copyShareUriToDisk failed", e);
+            try {
+                dest.delete();
+            } catch (Exception ignored) {
+                /* ignore */
+            }
+            return false;
+        } finally {
+            try {
+                if (in != null) in.close();
+            } catch (Exception ignored) {
+                /* ignore */
+            }
+            try {
+                if (out != null) out.close();
+            } catch (Exception ignored) {
+                /* ignore */
+            }
+        }
+    }
+
+    public static JSObject peekPendingShare(Context ctx) {
+        synchronized (PENDING_SHARE_LOCK) {
+            if (pendingShare != null) return pendingShare;
+        }
+        if (ctx == null) return null;
+        try {
+            String json =
+                    ctx.getApplicationContext()
+                            .getSharedPreferences(PIN_PREFS, Context.MODE_PRIVATE)
+                            .getString(SHARE_PREFS_KEY, "");
+            if (json == null || json.isEmpty()) return null;
+            JSObject stored = new JSObject(json);
+            synchronized (PENDING_SHARE_LOCK) {
+                if (pendingShare == null) pendingShare = stored;
+                return pendingShare;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "peekPendingShare prefs failed", e);
+            return null;
+        }
+    }
+
+    public static JSObject consumePendingShare(Context ctx) {
+        JSObject share = peekPendingShare(ctx);
+        JSObject r = base(true, "launcher:pending-share");
+        JSObject echo = new JSObject();
+        if (share != null) {
+            putClipped(echo, share, "text", 4000);
+            putClipped(echo, share, "title", BRIDGE_LABEL_MAX);
+            putClipped(echo, share, "name", 256);
+            putClipped(echo, share, "mime", 128);
+            putClipped(echo, share, "url", BRIDGE_URI_MAX);
+            boolean hasFile = false;
+            try {
+                if (share.has("hasFile")) hasFile = Boolean.TRUE.equals(share.get("hasFile"));
+            } catch (Exception ignored) {
+                /* optional */
+            }
+            File disk = pendingShareFile(ctx);
+            if (disk != null && disk.isFile() && disk.length() > 0) hasFile = true;
+            echo.put("hasFile", hasFile);
+        }
+        r.put("echo", echo);
+        return r;
+    }
+
+    public static JSObject readPendingShareFile(Context ctx) {
+        JSObject r = base(true, "launcher:read-share-file");
+        JSObject echo = new JSObject();
+        File disk = pendingShareFile(ctx);
+        JSObject meta = peekPendingShare(ctx);
+        if (disk != null && disk.isFile() && disk.length() > 0 && disk.length() <= MAX_SHARE_BYTES) {
+            FileInputStream in = null;
+            try {
+                in = new FileInputStream(disk);
+                byte[] bytes = new byte[(int) disk.length()];
+                int off = 0;
+                while (off < bytes.length) {
+                    int n = in.read(bytes, off, bytes.length - off);
+                    if (n < 0) break;
+                    off += n;
+                }
+                String mime = meta != null ? firstPinString(meta, "mime") : "";
+                if (mime.isEmpty()) mime = "application/octet-stream";
+                String name = meta != null ? firstPinString(meta, "name") : "";
+                if (name.isEmpty()) name = "shared.bin";
+                echo.put("data", "data:" + mime + ";base64," + Base64.encodeToString(bytes, Base64.NO_WRAP));
+                echo.put("mime", mime);
+                echo.put("name", name);
+            } catch (Exception e) {
+                Log.w(TAG, "readPendingShareFile failed", e);
+            } finally {
+                try {
+                    if (in != null) in.close();
+                } catch (Exception ignored) {
+                    /* ignore */
+                }
+            }
+        }
+        r.put("echo", echo);
+        return r;
+    }
+
+    public static JSObject ackPendingShare(Context ctx) {
+        synchronized (PENDING_SHARE_LOCK) {
+            pendingShare = null;
+        }
+        if (ctx != null) {
+            try {
+                ctx.getApplicationContext()
+                        .getSharedPreferences(PIN_PREFS, Context.MODE_PRIVATE)
+                        .edit()
+                        .remove(SHARE_PREFS_KEY)
+                        .apply();
+            } catch (Exception e) {
+                Log.w(TAG, "ackPendingShare prefs failed", e);
+            }
+            try {
+                File disk = pendingShareFile(ctx);
+                if (disk != null) disk.delete();
+            } catch (Exception e) {
+                Log.w(TAG, "ackPendingShare file failed", e);
+            }
+        }
+        return base(true, "launcher:ack-share");
     }
 }
