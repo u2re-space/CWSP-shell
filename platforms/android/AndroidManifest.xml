@@ -2,8 +2,8 @@
 <!--
   Filename: AndroidManifest.xml
   FullPath: apps/CWSP-shell/platforms/android/AndroidManifest.xml
-  Change date and time: 15.15.00_27.08.2026
-  Reason for changes: REQUEST_INSTALL_PACKAGES + queries for sibling SKU packages.
+  Change date and time: 12.28.00_28.08.2026
+  Reason for changes: REQUEST_DELETE_PACKAGES so App Menu can call PackageInstaller.uninstall.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -16,6 +16,8 @@
     <!-- WHY: all-files / SAF moved to space.u2re.explorer — launcher is HOME + pins only. -->
     <!-- WHY: in-app sideload of fleet/dev launcher APK from gateway /releases/android. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- WHY: PackageInstaller.uninstall() for App Menu — still shows the system confirm sheet. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <!-- WHY: see sibling SKU packages without relying on QUERY_ALL_PACKAGES being granted. -->
     <queries>
         <package android:name="space.u2re.explorer" />

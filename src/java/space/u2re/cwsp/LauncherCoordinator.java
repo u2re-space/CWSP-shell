@@ -2,13 +2,14 @@
  * Filename: LauncherCoordinator.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/LauncherCoordinator.java
  * FIND:app-menu
- * Change date and time: 12.10.00_28.08.2026
- * Reason for changes: App info / uninstall / custom launch action-data-flags from App Menu.
+ * Change date and time: 12.28.00_28.08.2026
+ * Reason for changes: Uninstall via PackageInstaller (not ACTION_DELETE).
  */
 
 package space.u2re.cwsp;
 
 import android.app.Activity;
+import android.app.PendingIntent;
 import android.app.role.RoleManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -17,6 +18,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.LauncherActivityInfo;
 import android.content.pm.LauncherApps;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
@@ -508,6 +510,15 @@ public final class LauncherCoordinator {
     }
 
     public static JSObject uninstallApp(Context ctx, String packageName) {
+        return uninstallApp(ctx, null, packageName);
+    }
+
+    /**
+     * WHY: {@link Intent#ACTION_DELETE} is a generic delete — many OEMs no-op {@code package:} URIs.
+     * INVARIANT: show the system uninstall sheet from the Activity first. PackageInstaller is
+     * fallback only (it can return without UI). Never silent ({@code DELETE_PACKAGES} is privileged).
+     */
+    public static JSObject uninstallApp(Context ctx, Activity activity, String packageName) {
         if (ctx == null) {
             return fail("launcher:uninstall", "context-null");
         }
@@ -518,21 +529,54 @@ public final class LauncherCoordinator {
         if (pkg.equals(ctx.getPackageName())) {
             return fail("launcher:uninstall", "self");
         }
+        Context startFrom = activity != null ? activity : ctx;
         try {
-            Intent intent = new Intent(Intent.ACTION_DELETE);
-            intent.setData(Uri.parse("package:" + pkg));
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            ctx.startActivity(intent);
-            JSObject echo = new JSObject();
-            echo.put("started", true);
-            echo.put("packageName", pkg);
-            JSObject r = base(true, "launcher:uninstall");
-            r.put("echo", echo);
-            return r;
+            Intent intent = new Intent(Intent.ACTION_UNINSTALL_PACKAGE);
+            intent.setData(Uri.fromParts("package", pkg, null));
+            intent.putExtra(Intent.EXTRA_RETURN_RESULT, true);
+            if (activity == null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            }
+            startFrom.startActivity(intent);
+            return uninstallStarted(pkg, "uninstall-package");
         } catch (Exception e) {
-            Log.w(TAG, "uninstallApp failed pkg=" + pkg, e);
-            return fail("launcher:uninstall", e.getMessage() != null ? e.getMessage() : "uninstall-failed");
+            Log.w(TAG, "ACTION_UNINSTALL_PACKAGE failed pkg=" + pkg, e);
         }
+        if (uninstallViaPackageInstaller(ctx, pkg)) {
+            return uninstallStarted(pkg, "package-installer");
+        }
+        return fail("launcher:uninstall", "uninstall-failed");
+    }
+
+    private static boolean uninstallViaPackageInstaller(Context ctx, String pkg) {
+        try {
+            PackageInstaller installer = ctx.getPackageManager().getPackageInstaller();
+            if (installer == null) return false;
+            Intent callback = new Intent("space.u2re.cwsp.ACTION_UNINSTALL_STATUS");
+            callback.setPackage(ctx.getPackageName());
+            callback.putExtra("packageName", pkg);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                flags |= PendingIntent.FLAG_MUTABLE;
+            }
+            PendingIntent pi =
+                    PendingIntent.getBroadcast(ctx, pkg.hashCode(), callback, flags);
+            installer.uninstall(pkg, pi.getIntentSender());
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "PackageInstaller.uninstall failed pkg=" + pkg, e);
+            return false;
+        }
+    }
+
+    private static JSObject uninstallStarted(String pkg, String via) {
+        JSObject echo = new JSObject();
+        echo.put("started", true);
+        echo.put("packageName", pkg);
+        echo.put("via", via);
+        JSObject r = base(true, "launcher:uninstall");
+        r.put("echo", echo);
+        return r;
     }
 
     /**

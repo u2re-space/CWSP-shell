@@ -2,8 +2,8 @@
  * Filename: CwsLauncherBridgePlugin.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/CwsLauncherBridgePlugin.java
  * FIND:app-menu
- * Change date and time: 12.10.00_28.08.2026
- * Reason for changes: Dispatch launcher:app-info / open-app-info / uninstall.
+ * Change date and time: 12.28.00_28.08.2026
+ * Reason for changes: Uninstall uses Activity + ACTION_UNINSTALL_PACKAGE.
  */
 
 package space.u2re.cwsp;
@@ -240,7 +240,7 @@ public class CwsLauncherBridgePlugin extends Plugin {
             }
             case "launcher:uninstall": {
                 String packageName = payload != null ? payload.getString("packageName", "") : "";
-                return LauncherCoordinator.uninstallApp(getContext(), packageName);
+                return LauncherCoordinator.uninstallApp(getContext(), getActivity(), packageName);
             }
             case "launcher:start-shortcut": {
                 String packageName = payload != null ? payload.getString("packageName", "") : "";
