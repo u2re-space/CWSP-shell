@@ -1,8 +1,9 @@
 /*
  * Filename: LauncherCoordinator.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/LauncherCoordinator.java
- * Change date and time: 21.42.00_23.08.2026
- * Reason for changes: Slim whitelist pin + prefs stash so WebView crash cannot drop the tile.
+ * FIND:app-menu
+ * Change date and time: 12.10.00_28.08.2026
+ * Reason for changes: App info / uninstall / custom launch action-data-flags from App Menu.
  */
 
 package space.u2re.cwsp;
@@ -12,10 +13,13 @@ import android.app.role.RoleManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.LauncherActivityInfo;
 import android.content.pm.LauncherApps;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.net.Uri;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -34,6 +38,7 @@ import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -43,6 +48,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -402,6 +408,10 @@ public final class LauncherCoordinator {
     }
 
     public static JSObject launchApp(Context ctx, String packageName, String componentName) {
+        return launchApp(ctx, packageName, componentName, null);
+    }
+
+    public static JSObject launchApp(Context ctx, String packageName, String componentName, JSObject spec) {
         if (ctx == null) {
             return fail("launcher:launch", "context-null");
         }
@@ -409,10 +419,120 @@ public final class LauncherCoordinator {
         if (pkg.isEmpty()) {
             return fail("launcher:launch", "missing-package");
         }
-        if (queryIsDefaultHome(ctx)) {
+        String blocked = blockedLaunchData(spec);
+        if (blocked != null) {
+            return fail("launcher:launch", blocked);
+        }
+        /* WHY: LauncherApps.startMainActivity is MAIN/LAUNCHER only — custom action/data uses PM. */
+        if (queryIsDefaultHome(ctx) && !launchSpecIsCustom(spec)) {
             return launchAppViaLauncherApps(ctx, pkg, componentName);
         }
-        return launchAppViaPackageManager(ctx, pkg, componentName);
+        return launchAppViaPackageManager(ctx, pkg, componentName, spec);
+    }
+
+    public static JSObject appInfo(Context ctx, String packageName) {
+        if (ctx == null) {
+            return fail("launcher:app-info", "context-null");
+        }
+        String pkg = packageName != null ? packageName.trim() : "";
+        if (pkg.isEmpty()) {
+            return fail("launcher:app-info", "missing-package");
+        }
+        try {
+            PackageManager pm = ctx.getPackageManager();
+            PackageInfo pi;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pi = pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0));
+            } else {
+                pi = pm.getPackageInfo(pkg, 0);
+            }
+            ApplicationInfo ai = pi.applicationInfo;
+            boolean system = ai != null && (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+            boolean updated = ai != null && (ai.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
+            boolean self = pkg.equals(ctx.getPackageName());
+            JSObject echo = new JSObject();
+            echo.put("packageName", pkg);
+            echo.put("label", ai != null ? String.valueOf(pm.getApplicationLabel(ai)) : pkg);
+            echo.put("versionName", pi.versionName != null ? pi.versionName : "");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                echo.put("versionCode", pi.getLongVersionCode());
+            } else {
+                echo.put("versionCode", pi.versionCode);
+            }
+            echo.put("installer", installerPackage(pm, pkg));
+            echo.put("system", system);
+            echo.put("updatedSystem", updated);
+            echo.put("enabled", ai == null || ai.enabled);
+            echo.put("self", self);
+            echo.put("canUninstall", !self && (!system || updated));
+            echo.put("firstInstallTime", pi.firstInstallTime);
+            echo.put("lastUpdateTime", pi.lastUpdateTime);
+            Intent launch = pm.getLaunchIntentForPackage(pkg);
+            if (launch != null && launch.getComponent() != null) {
+                echo.put("componentName", launch.getComponent().flattenToShortString());
+            }
+            JSObject r = base(true, "launcher:app-info");
+            r.put("echo", echo);
+            return r;
+        } catch (PackageManager.NameNotFoundException e) {
+            return fail("launcher:app-info", "app-not-found");
+        } catch (Exception e) {
+            Log.w(TAG, "appInfo failed pkg=" + pkg, e);
+            return fail("launcher:app-info", e.getMessage() != null ? e.getMessage() : "info-failed");
+        }
+    }
+
+    public static JSObject openAppInfo(Context ctx, String packageName) {
+        if (ctx == null) {
+            return fail("launcher:open-app-info", "context-null");
+        }
+        String pkg = packageName != null ? packageName.trim() : "";
+        if (pkg.isEmpty()) {
+            return fail("launcher:open-app-info", "missing-package");
+        }
+        try {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(Uri.parse("package:" + pkg));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(intent);
+            JSObject echo = new JSObject();
+            echo.put("opened", true);
+            echo.put("packageName", pkg);
+            JSObject r = base(true, "launcher:open-app-info");
+            r.put("echo", echo);
+            return r;
+        } catch (Exception e) {
+            Log.w(TAG, "openAppInfo failed pkg=" + pkg, e);
+            return fail("launcher:open-app-info", e.getMessage() != null ? e.getMessage() : "open-failed");
+        }
+    }
+
+    public static JSObject uninstallApp(Context ctx, String packageName) {
+        if (ctx == null) {
+            return fail("launcher:uninstall", "context-null");
+        }
+        String pkg = packageName != null ? packageName.trim() : "";
+        if (pkg.isEmpty()) {
+            return fail("launcher:uninstall", "missing-package");
+        }
+        if (pkg.equals(ctx.getPackageName())) {
+            return fail("launcher:uninstall", "self");
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_DELETE);
+            intent.setData(Uri.parse("package:" + pkg));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(intent);
+            JSObject echo = new JSObject();
+            echo.put("started", true);
+            echo.put("packageName", pkg);
+            JSObject r = base(true, "launcher:uninstall");
+            r.put("echo", echo);
+            return r;
+        } catch (Exception e) {
+            Log.w(TAG, "uninstallApp failed pkg=" + pkg, e);
+            return fail("launcher:uninstall", e.getMessage() != null ? e.getMessage() : "uninstall-failed");
+        }
     }
 
     /**
@@ -824,7 +944,8 @@ public final class LauncherCoordinator {
         }
     }
 
-    private static JSObject launchAppViaPackageManager(Context ctx, String pkg, String componentName) {
+    private static JSObject launchAppViaPackageManager(
+            Context ctx, String pkg, String componentName, JSObject spec) {
         try {
             PackageManager pm = ctx.getPackageManager();
             Intent launch = null;
@@ -840,9 +961,14 @@ public final class LauncherCoordinator {
             if (launch == null) {
                 launch = pm.getLaunchIntentForPackage(pkg);
             }
+            if (launch == null && launchSpecIsCustom(spec)) {
+                launch = new Intent(Intent.ACTION_MAIN);
+                launch.setPackage(pkg);
+            }
             if (launch == null) {
                 return fail("launcher:launch", "app-not-found");
             }
+            applyLaunchSpec(launch, spec);
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(launch);
             JSObject echo = new JSObject();
@@ -853,6 +979,197 @@ public final class LauncherCoordinator {
         } catch (Exception e) {
             Log.w(TAG, "launchAppViaPackageManager failed pkg=" + pkg, e);
             return fail("launcher:launch", e.getMessage() != null ? e.getMessage() : "launch-failed");
+        }
+    }
+
+    private static boolean launchSpecIsCustom(JSObject spec) {
+        if (spec == null) return false;
+        return nz(spec, "action") || nz(spec, "data") || spec.has("extras") || spec.has("flags") || spec.has("categories");
+    }
+
+    private static String blockedLaunchData(JSObject spec) {
+        if (spec == null) return null;
+        String data = specStr(spec, "data");
+        if (data.isEmpty()) return null;
+        String lower = data.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("javascript:")) return "blocked-data-scheme";
+        return null;
+    }
+
+    private static void applyLaunchSpec(Intent launch, JSObject spec) {
+        if (launch == null || spec == null) return;
+        String action = specStr(spec, "action");
+        String data = specStr(spec, "data");
+        String mime = specStr(spec, "mimeType");
+        if (mime.isEmpty()) mime = specStr(spec, "type");
+        if (!action.isEmpty()) {
+            launch.setAction(action);
+        } else if (!data.isEmpty() && Intent.ACTION_MAIN.equals(launch.getAction())) {
+            launch.setAction(Intent.ACTION_VIEW);
+        }
+        if (!data.isEmpty()) {
+            Uri uri = Uri.parse(data);
+            if (mime.isEmpty()) launch.setData(uri);
+            else launch.setDataAndType(uri, mime);
+        } else if (!mime.isEmpty()) {
+            launch.setType(mime);
+        }
+        applyStringList(spec, "categories", (value) -> {
+            if (!value.isEmpty()) launch.addCategory(value);
+        });
+        applyStringList(spec, "flags", (value) -> applyLaunchFlag(launch, value));
+        JSONObject extras = specJson(spec, "extras");
+        if (extras != null) {
+            Iterator<String> keys = extras.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                if (key == null || key.isEmpty()) continue;
+                Object value;
+                try {
+                    value = extras.get(key);
+                } catch (Exception ignored) {
+                    continue;
+                }
+                putLaunchExtra(launch, key, value);
+            }
+        }
+    }
+
+    private interface StringSink {
+        void accept(String value);
+    }
+
+    private static void applyStringList(JSObject spec, String field, StringSink sink) {
+        if (spec == null || !spec.has(field)) return;
+        try {
+            Object raw = spec.get(field);
+            if (raw instanceof JSArray) {
+                JSArray arr = (JSArray) raw;
+                for (int i = 0; i < arr.length(); i++) {
+                    sink.accept(String.valueOf(arr.get(i)).trim());
+                }
+            } else if (raw instanceof JSONArray) {
+                JSONArray arr = (JSONArray) raw;
+                for (int i = 0; i < arr.length(); i++) {
+                    sink.accept(String.valueOf(arr.get(i)).trim());
+                }
+            } else if (raw != null) {
+                for (String part : String.valueOf(raw).split("[,\\s]+")) {
+                    sink.accept(part.trim());
+                }
+            }
+        } catch (Exception ignored) {
+            /* ignore bad extras list */
+        }
+    }
+
+    private static void applyLaunchFlag(Intent launch, String raw) {
+        String flag = raw != null ? raw.trim().toUpperCase(Locale.ROOT) : "";
+        if (flag.startsWith("FLAG_ACTIVITY_")) flag = flag.substring("FLAG_ACTIVITY_".length());
+        if (flag.startsWith("ACTIVITY_")) flag = flag.substring("ACTIVITY_".length());
+        switch (flag) {
+            case "NEW_TASK":
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                break;
+            case "CLEAR_TOP":
+                launch.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                break;
+            case "SINGLE_TOP":
+                launch.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                break;
+            case "CLEAR_TASK":
+                launch.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                break;
+            case "NO_HISTORY":
+                launch.addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
+                break;
+            case "REORDER_TO_FRONT":
+                launch.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                break;
+            case "MULTIPLE_TASK":
+                launch.addFlags(Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+                break;
+            case "NEW_DOCUMENT":
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT);
+                }
+                break;
+            case "NO_ANIMATION":
+                launch.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private static void putLaunchExtra(Intent launch, String key, Object value) {
+        if (value instanceof Boolean) {
+            launch.putExtra(key, (Boolean) value);
+        } else if (value instanceof Integer) {
+            launch.putExtra(key, (Integer) value);
+        } else if (value instanceof Long) {
+            launch.putExtra(key, (Long) value);
+        } else if (value instanceof Double) {
+            double d = (Double) value;
+            if (d == Math.rint(d) && Math.abs(d) <= Integer.MAX_VALUE) {
+                launch.putExtra(key, (int) d);
+            } else {
+                launch.putExtra(key, d);
+            }
+        } else if (value != null && value != JSONObject.NULL) {
+            launch.putExtra(key, String.valueOf(value));
+        }
+    }
+
+    private static boolean nz(JSObject spec, String key) {
+        return !specStr(spec, key).isEmpty();
+    }
+
+    private static String specStr(JSObject spec, String key) {
+        if (spec == null || key == null || !spec.has(key)) return "";
+        try {
+            String v = spec.getString(key, "");
+            return v != null ? v.trim() : "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static JSONObject specJson(JSObject spec, String key) {
+        if (spec == null || key == null || !spec.has(key)) return null;
+        try {
+            JSObject nested = spec.getJSObject(key);
+            if (nested != null) return nested;
+        } catch (Exception ignored) {
+            /* fall through */
+        }
+        try {
+            Object raw = spec.get(key);
+            if (raw instanceof JSONObject) return (JSONObject) raw;
+            if (raw instanceof String) {
+                String s = ((String) raw).trim();
+                if (s.startsWith("{")) return new JSONObject(s);
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        return null;
+    }
+
+    private static String installerPackage(PackageManager pm, String pkg) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                String installing = pm.getInstallSourceInfo(pkg).getInstallingPackageName();
+                return installing != null ? installing : "";
+            }
+        } catch (Exception ignored) {
+            /* fall through */
+        }
+        try {
+            String legacy = pm.getInstallerPackageName(pkg);
+            return legacy != null ? legacy : "";
+        } catch (Exception e) {
+            return "";
         }
     }
 

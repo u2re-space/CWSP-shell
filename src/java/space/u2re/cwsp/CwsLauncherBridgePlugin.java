@@ -1,8 +1,9 @@
 /*
  * Filename: CwsLauncherBridgePlugin.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/CwsLauncherBridgePlugin.java
- * Change date and time: 23.09.25_23.08.2026
- * Reason for changes: navigationBarHeightCss stays 0 — 3-button pad is OS-owned.
+ * FIND:app-menu
+ * Change date and time: 12.10.00_28.08.2026
+ * Reason for changes: Dispatch launcher:app-info / open-app-info / uninstall.
  */
 
 package space.u2re.cwsp;
@@ -227,7 +228,19 @@ public class CwsLauncherBridgePlugin extends Plugin {
             case "launcher:launch": {
                 String packageName = payload != null ? payload.getString("packageName", "") : "";
                 String componentName = payload != null ? payload.getString("componentName", "") : "";
-                return LauncherCoordinator.launchApp(getContext(), packageName, componentName);
+                return LauncherCoordinator.launchApp(getContext(), packageName, componentName, payload);
+            }
+            case "launcher:app-info": {
+                String packageName = payload != null ? payload.getString("packageName", "") : "";
+                return LauncherCoordinator.appInfo(getContext(), packageName);
+            }
+            case "launcher:open-app-info": {
+                String packageName = payload != null ? payload.getString("packageName", "") : "";
+                return LauncherCoordinator.openAppInfo(getContext(), packageName);
+            }
+            case "launcher:uninstall": {
+                String packageName = payload != null ? payload.getString("packageName", "") : "";
+                return LauncherCoordinator.uninstallApp(getContext(), packageName);
             }
             case "launcher:start-shortcut": {
                 String packageName = payload != null ? payload.getString("packageName", "") : "";

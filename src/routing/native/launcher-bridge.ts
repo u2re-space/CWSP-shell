@@ -1,8 +1,9 @@
 /*
  * Filename: launcher-bridge.ts
  * FullPath: apps/CWSP-shell/src/routing/native/launcher-bridge.ts
- * Change date and time: 18.35.00_19.08.2026
- * Reason for changes: CWSP Launcher SKU IPC wrappers (shell-owned native bridge).
+ * FIND:app-menu
+ * Change date and time: 12.10.00_28.08.2026
+ * Reason for changes: launcher:app-info / open-app-info / uninstall + launch action/data/flags.
  */
 import { invokeCwsPlatformIPC } from "com/routing/native/cws-bridge";
 
@@ -73,13 +74,84 @@ export async function launcherHasPackages(pkgs: string[]): Promise<Record<string
     return installed && typeof installed === "object" ? installed : {};
 }
 
-export async function launcherLaunch(pkg: string, component?: string): Promise<boolean> {
+export type LauncherLaunchSpec = {
+    action?: string;
+    data?: string;
+    mimeType?: string;
+    extras?: Record<string, string | number | boolean>;
+    flags?: string[];
+    categories?: string[];
+    componentName?: string;
+};
+
+export type LauncherAppInfo = {
+    packageName?: string;
+    label?: string;
+    versionName?: string;
+    versionCode?: number;
+    componentName?: string;
+    installer?: string;
+    system?: boolean;
+    updatedSystem?: boolean;
+    enabled?: boolean;
+    self?: boolean;
+    canUninstall?: boolean;
+    firstInstallTime?: number;
+    lastUpdateTime?: number;
+};
+
+export async function launcherLaunch(
+    pkg: string,
+    component?: string,
+    launch?: LauncherLaunchSpec
+): Promise<boolean> {
     const packageName = String(pkg || "").trim();
     if (!packageName) return false;
-    const componentName = component?.trim();
+    const componentName = String(launch?.componentName || component || "").trim();
+    const payload: Record<string, unknown> = { packageName };
+    if (componentName) payload.componentName = componentName;
+    if (launch) {
+        if (launch.action) payload.action = String(launch.action).trim();
+        if (launch.data) payload.data = String(launch.data).trim();
+        if (launch.mimeType) payload.mimeType = String(launch.mimeType).trim();
+        if (launch.flags?.length) payload.flags = launch.flags;
+        if (launch.categories?.length) payload.categories = launch.categories;
+        if (launch.extras && Object.keys(launch.extras).length) payload.extras = launch.extras;
+    }
     const r = await invokeCwsPlatformIPC({
         channel: "launcher:launch",
-        payload: componentName ? { packageName, componentName } : { packageName }
+        payload
+    });
+    return r.ok === true;
+}
+
+export async function launcherAppInfo(pkg: string): Promise<LauncherAppInfo | null> {
+    const packageName = String(pkg || "").trim();
+    if (!packageName) return null;
+    const r = await invokeCwsPlatformIPC({
+        channel: "launcher:app-info",
+        payload: { packageName }
+    });
+    if (!r.ok) return null;
+    return ((r.echo as LauncherAppInfo | undefined) || r) as LauncherAppInfo;
+}
+
+export async function launcherOpenAppInfo(pkg: string): Promise<boolean> {
+    const packageName = String(pkg || "").trim();
+    if (!packageName) return false;
+    const r = await invokeCwsPlatformIPC({
+        channel: "launcher:open-app-info",
+        payload: { packageName }
+    });
+    return r.ok === true;
+}
+
+export async function launcherUninstall(pkg: string): Promise<boolean> {
+    const packageName = String(pkg || "").trim();
+    if (!packageName) return false;
+    const r = await invokeCwsPlatformIPC({
+        channel: "launcher:uninstall",
+        payload: { packageName }
     });
     return r.ok === true;
 }
