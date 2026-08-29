@@ -1,8 +1,8 @@
 /*
  * Filename: CwsStorageHost.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/CwsStorageHost.java
- * Change date: 16.50.00_21.08.2026
- * Reason: All-files (/sdcard) + SAF tree listing for Explorer on the launcher SKU.
+ * Change date: 01.20.00_30.08.2026
+ * Reason: storage:open — FileProvider SEND/VIEW from Explorer /sdcard/ without JS bytes.
  */
 package space.u2re.cwsp;
 
@@ -135,6 +135,77 @@ public final class CwsStorageHost {
         String path = payload != null ? payload.getString("path", "/") : "/";
         if ("saf".equals(root)) return uriSaf(path);
         return uriSdcard(path);
+    }
+
+    /**
+     * WHY: Explorer tap on {@code /sdcard/} must not copy bytes through the WebView.
+     * Resolve FileProvider/SAF, then SEND to a sibling SKU or VIEW+chooser.
+     */
+    JSObject open(JSObject payload) {
+        String packageName = payload != null ? payload.getString("packageName", "") : "";
+        if (packageName == null) packageName = "";
+        packageName = packageName.trim();
+        String mimeType = payload != null ? payload.getString("mimeType", "") : "";
+        if (mimeType == null || mimeType.isEmpty()) {
+            mimeType = payload != null ? payload.getString("type", "") : "";
+        }
+        if (mimeType == null) mimeType = "";
+        String title = payload != null ? payload.getString("title", "Open with") : "Open with";
+        if (title == null || title.trim().isEmpty()) title = "Open with";
+        boolean chooser = packageName.isEmpty();
+        if (payload != null && payload.has("chooser")) {
+            try {
+                Object raw = payload.get("chooser");
+                if (raw instanceof Boolean) {
+                    chooser = (Boolean) raw;
+                } else if (raw != null) {
+                    String s = String.valueOf(raw).trim().toLowerCase();
+                    chooser = !("false".equals(s) || "0".equals(s) || "no".equals(s));
+                }
+            } catch (Exception ignored) {
+                /* keep default */
+            }
+        }
+        JSObject resolved = uri(payload);
+        boolean ok = false;
+        try {
+            ok = resolved.getBoolean("ok", false);
+        } catch (Exception ignored) {
+            /* Capacitor JSObject */
+        }
+        JSObject echo = null;
+        try {
+            echo = resolved.getJSObject("echo");
+        } catch (Exception ignored) {
+            /* optional */
+        }
+        String uri = echo != null ? echo.getString("uri", "") : "";
+        if (!ok || uri == null || uri.isEmpty()) {
+            String err = echo != null ? echo.getString("error", "not a file") : "not a file";
+            return fail("storage:open", err != null && !err.isEmpty() ? err : "not a file");
+        }
+        String name = echo.getString("name", "file");
+        String mime = mimeType.trim().isEmpty() ? echo.getString("mime", "") : mimeType.trim();
+        if (mime == null || mime.isEmpty()) mime = guessMime(name);
+        Context ctx = plugin.getContext();
+        if (ctx == null) return fail("storage:open", "no context");
+        if (!packageName.isEmpty()) {
+            JSObject sent = LauncherCoordinator.sendToPackage(
+                    ctx, uri, name, mime, packageName, false, title);
+            boolean sentOk = false;
+            try {
+                sentOk = sent != null && sent.getBoolean("ok", false);
+            } catch (Exception ignored) {
+                /* fall through */
+            }
+            if (sentOk) return sent;
+            /* WHY: setPackage can miss OEM filters — chooser still lists Document. */
+            return LauncherCoordinator.openUri(ctx, uri, "", true, title, mime);
+        }
+        if (chooser) {
+            return LauncherCoordinator.openUri(ctx, uri, "", true, title, mime);
+        }
+        return LauncherCoordinator.sendToPackage(ctx, uri, name, mime, "", false, title);
     }
 
     JSObject allFilesStatus() {

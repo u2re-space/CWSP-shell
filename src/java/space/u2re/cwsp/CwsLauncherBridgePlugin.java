@@ -398,12 +398,14 @@ public class CwsLauncherBridgePlugin extends Plugin {
             case "storage:list":
             case "storage:read":
             case "storage:uri":
+            case "storage:open":
             case "files:storage:status":
             case "files:storage:show-paths": {
                 if (storageHost == null) storageHost = new CwsStorageHost(this);
                 if ("storage:list".equals(channel)) return storageHost.list(payload);
                 if ("storage:read".equals(channel)) return storageHost.read(payload);
                 if ("storage:uri".equals(channel)) return storageHost.uri(payload);
+                if ("storage:open".equals(channel)) return storageHost.open(payload);
                 return storageHost.showPaths();
             }
             case "storage:all-files-status":
