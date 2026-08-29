@@ -12,6 +12,7 @@
         "build:cw-markdown": "rm -rf ./build/cw-markdown && node ./scripts/run-vite.mjs build --config vite.config.js --mode markdown && node ./scripts/normalize-worker-names.mjs --dir build/cw-markdown && node ./scripts/stage-cw-markdown.mjs",
         "build:vds-main": "rm -rf ./build/vds-main && node ./scripts/run-vite.mjs build --config vite.config.js --mode vds-main && node ./scripts/normalize-worker-names.mjs --dir build/vds-main && node ./scripts/stage-vds-main.mjs",
         "stage:vds-main": "node ./scripts/stage-vds-main.mjs",
+        "stage:fest-libs": "node ../../modules/projects/scripts/stage-fest-libs.mjs",
         "build:all": "node ./scripts/build.mjs pwa",
         "stage:cw-markdown": "node ./scripts/stage-cw-markdown.mjs",
         "build:modules": "node ./scripts/build.mjs modules",
@@ -102,5 +103,5 @@
         "vite-plugin-static-copy": ">=3.1.1",
         "vite-tsconfig-paths": ">=5.1.4"
     },
-    "version": "0.0.96"
+    "version": "0.0.100"
 }

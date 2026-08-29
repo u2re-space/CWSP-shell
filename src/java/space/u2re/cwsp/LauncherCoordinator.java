@@ -2,8 +2,8 @@
  * Filename: LauncherCoordinator.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/LauncherCoordinator.java
  * FIND:app-menu
- * Change date and time: 12.28.00_28.08.2026
- * Reason for changes: Uninstall via PackageInstaller (not ACTION_DELETE).
+ * Change date and time: 22.30.00_29.08.2026
+ * Reason for changes: launcher:list includes install/update times and category for App Menu sort.
  */
 
 package space.u2re.cwsp;
@@ -35,6 +35,8 @@ import android.os.UserHandle;
 import android.provider.Settings;
 import android.util.Base64;
 import android.util.Log;
+
+import androidx.core.content.FileProvider;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -835,6 +837,48 @@ public final class LauncherCoordinator {
         return "default";
     }
 
+    private static String listCategory(ApplicationInfo ai, PackageManager pm, String pkg, boolean system) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && ai != null) {
+            int cat = ai.category;
+            if (cat == ApplicationInfo.CATEGORY_GAME) return "game";
+            if (cat == ApplicationInfo.CATEGORY_AUDIO) return "audio";
+            if (cat == ApplicationInfo.CATEGORY_VIDEO) return "video";
+            if (cat == ApplicationInfo.CATEGORY_IMAGE) return "image";
+            if (cat == ApplicationInfo.CATEGORY_SOCIAL) return "social";
+            if (cat == ApplicationInfo.CATEGORY_NEWS) return "news";
+            if (cat == ApplicationInfo.CATEGORY_MAPS) return "maps";
+            if (cat == ApplicationInfo.CATEGORY_PRODUCTIVITY) return "productivity";
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && cat == ApplicationInfo.CATEGORY_ACCESSIBILITY) {
+                return "accessibility";
+            }
+        }
+        if (system) return "system";
+        String installer = installerPackage(pm, pkg);
+        return installer != null && !installer.isEmpty() ? installer : "other";
+    }
+
+    private static void putListMeta(JSObject entry, PackageManager pm, String pkg) {
+        try {
+            PackageInfo pi;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pi = pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0));
+            } else {
+                pi = pm.getPackageInfo(pkg, 0);
+            }
+            entry.put("firstInstallTime", pi.firstInstallTime);
+            entry.put("lastUpdateTime", pi.lastUpdateTime);
+            ApplicationInfo ai = pi.applicationInfo;
+            boolean system = ai != null && (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+            entry.put("system", system);
+            entry.put("installer", installerPackage(pm, pkg));
+            entry.put("category", listCategory(ai, pm, pkg, system));
+        } catch (Exception ignored) {
+            if (!entry.has("category")) {
+                entry.put("category", "other");
+            }
+        }
+    }
+
     private static JSObject listAppsViaLauncherApps(Context ctx, String query) {
         try {
             LauncherApps launcherApps = ctx.getSystemService(LauncherApps.class);
@@ -875,6 +919,7 @@ public final class LauncherCoordinator {
                 entry.put("label", label);
                 entry.put("componentName", info.getComponentName().flattenToShortString());
                 entry.put("iconCacheKey", pkg);
+                putListMeta(entry, ctx.getPackageManager(), pkg);
                 apps.put(entry);
             }
             JSObject echo = new JSObject();
@@ -935,6 +980,7 @@ public final class LauncherCoordinator {
                 entry.put("label", label);
                 entry.put("componentName", cn.flattenToShortString());
                 entry.put("iconCacheKey", pkg);
+                putListMeta(entry, pm, pkg);
                 apps.put(entry);
             }
             JSObject echo = new JSObject();
@@ -1573,7 +1619,10 @@ public final class LauncherCoordinator {
                     }
                 }
             }
-            view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            view.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             String pkg = packageName != null ? packageName.trim() : "";
             /*
              * WHY: never force package for content/file — caller may still pass publisher pkg
@@ -1588,8 +1637,24 @@ public final class LauncherCoordinator {
                 /* ignore */
             }
             boolean documentUri = "content".equals(openScheme) || "file".equals(openScheme);
-            if (!pkg.isEmpty() && view.getPackage() == null && !documentUri) {
+            boolean ecosystemPkg = pkg.startsWith("space.u2re.");
+            /*
+             * WHY: skip publisher pkg on content/file (old Files tiles), but honor
+             * ecosystem SKUs so Explorer can ACTION_VIEW into CWSP-document.
+             */
+            if (!pkg.isEmpty() && view.getPackage() == null && (!documentUri || ecosystemPkg)) {
                 view.setPackage(pkg);
+                if (documentUri && view.getData() != null) {
+                    try {
+                        ctx.grantUriPermission(
+                                pkg,
+                                view.getData(),
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    } catch (Exception ignored) {
+                        /* ignore */
+                    }
+                }
             }
             /*
              * WHY: previously we skipped chooser for all content:// — default handler for
@@ -1637,6 +1702,167 @@ public final class LauncherCoordinator {
     public static JSObject openUri(
             Context ctx, String rawUri, String packageName, boolean chooser, String chooserTitle) {
         return openUri(ctx, rawUri, packageName, chooser, chooserTitle, "");
+    }
+
+    /**
+     * WHY: Explorer OPFS {@code /user/} has no content://. Write bytes to this APK's
+     * cache FileProvider, then ACTION_VIEW the sibling (Document / Transfer).
+     */
+    public static JSObject openBytes(
+            Context ctx,
+            String name,
+            String mimeType,
+            String dataUrl,
+            String packageName,
+            boolean chooser,
+            String chooserTitle) {
+        if (ctx == null) return fail("launcher:open-bytes", "context-null");
+        byte[] bytes = decodeDataUrlOrBase64(dataUrl);
+        if (bytes == null || bytes.length == 0) {
+            return fail("launcher:open-bytes", "data-missing");
+        }
+        if (bytes.length > 8L * 1024 * 1024) {
+            return fail("launcher:open-bytes", "too-large");
+        }
+        File dir = new File(ctx.getCacheDir(), "files");
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            return fail("launcher:open-bytes", "cache-mkdir");
+        }
+        String safe = safeShareName(name);
+        File dest = new File(dir, safe);
+        FileOutputStream out = null;
+        try {
+            out = new FileOutputStream(dest);
+            out.write(bytes);
+            out.flush();
+        } catch (Exception e) {
+            Log.w(TAG, "openBytes write failed", e);
+            return fail(
+                    "launcher:open-bytes",
+                    e.getMessage() != null ? e.getMessage() : "write-failed");
+        } finally {
+            try {
+                if (out != null) out.close();
+            } catch (Exception ignored) {
+                /* ignore */
+            }
+        }
+        String uri;
+        try {
+            uri = FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".fileprovider", dest)
+                    .toString();
+        } catch (Exception e) {
+            Log.w(TAG, "openBytes FileProvider failed", e);
+            return fail("launcher:open-bytes", "fileprovider-failed");
+        }
+        String mime = mimeType != null ? mimeType.trim() : "";
+        if (mime.isEmpty()) mime = guessMimeFromUri(safe);
+        /* WHY: Document's SEND filters match text/* / image/* reliably; VIEW+pathPattern often misses FileProvider. */
+        return sendToPackage(ctx, uri, safe, mime, packageName, chooser, chooserTitle);
+    }
+
+    public static JSObject sendToPackage(
+            Context ctx,
+            String rawUri,
+            String name,
+            String mimeType,
+            String packageName,
+            boolean chooser,
+            String chooserTitle) {
+        if (ctx == null) return fail("launcher:send-to-package", "context-null");
+        String uri = rawUri != null ? rawUri.trim() : "";
+        if (uri.isEmpty()) return fail("launcher:send-to-package", "uri-missing");
+        android.net.Uri parsed;
+        try {
+            parsed = android.net.Uri.parse(uri);
+        } catch (Exception e) {
+            return fail("launcher:send-to-package", "uri-invalid");
+        }
+        if (parsed == null || parsed.getScheme() == null) {
+            return fail("launcher:send-to-package", "uri-invalid");
+        }
+        String mime = mimeType != null ? mimeType.trim() : "";
+        if (mime.isEmpty()) mime = guessMimeFromUri(uri);
+        if (mime.isEmpty()) mime = "application/octet-stream";
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType(mime);
+        send.putExtra(Intent.EXTRA_STREAM, parsed);
+        if (name != null && !name.trim().isEmpty()) {
+            send.putExtra(Intent.EXTRA_TITLE, name.trim());
+        }
+        send.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        | Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        try {
+            send.setClipData(
+                    android.content.ClipData.newUri(ctx.getContentResolver(), "cwsp", parsed));
+        } catch (Exception ignored) {
+            /* optional */
+        }
+        String pkg = packageName != null ? packageName.trim() : "";
+        if (!pkg.isEmpty()) {
+            send.setPackage(pkg);
+            try {
+                ctx.grantUriPermission(
+                        pkg,
+                        parsed,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            } catch (Exception ignored) {
+                /* ignore */
+            }
+        }
+        try {
+            Intent launch = send;
+            if (chooser && pkg.isEmpty()) {
+                String title =
+                        chooserTitle != null && !chooserTitle.trim().isEmpty()
+                                ? chooserTitle.trim()
+                                : "Open with";
+                launch = Intent.createChooser(send, title);
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            }
+            ctx.startActivity(launch);
+            JSObject echo = new JSObject();
+            echo.put("opened", true);
+            echo.put("uri", uri);
+            echo.put("sent", true);
+            if (!pkg.isEmpty()) echo.put("packageName", pkg);
+            echo.put("mimeType", mime);
+            JSObject r = base(true, "launcher:send-to-package");
+            r.put("echo", echo);
+            return r;
+        } catch (Exception e) {
+            Log.w(TAG, "sendToPackage failed, falling back to VIEW", e);
+            return openUri(ctx, uri, packageName, chooser, chooserTitle, mime);
+        }
+    }
+
+    private static byte[] decodeDataUrlOrBase64(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim();
+        if (s.isEmpty()) return null;
+        int comma = s.indexOf(',');
+        if (s.regionMatches(true, 0, "data:", 0, 5) && comma > 0) {
+            s = s.substring(comma + 1);
+        }
+        try {
+            return Base64.decode(s, Base64.DEFAULT);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String safeShareName(String name) {
+        String n = name != null ? name.trim() : "";
+        int slash = Math.max(n.lastIndexOf('/'), n.lastIndexOf('\\'));
+        if (slash >= 0) n = n.substring(slash + 1);
+        n = n.replaceAll("[^A-Za-z0-9._-]", "_");
+        if (n.isEmpty() || ".".equals(n) || "..".equals(n)) n = "shared.bin";
+        if (n.length() > 120) n = n.substring(n.length() - 120);
+        return n;
     }
 
     private static String guessMimeFromUri(String uri) {

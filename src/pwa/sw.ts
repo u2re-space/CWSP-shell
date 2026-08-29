@@ -444,6 +444,19 @@ const toCacheRequestInfo = (requestLike: RequestInfo | URL | null | undefined): 
     return requestLike instanceof URL ? requestLike.toString() : requestLike;
 };
 
+/** Cache#match only accepts http(s) GET keys — blob:/data:/POST throw TypeError. */
+const isCacheApiKey = (request: RequestInfo): boolean => {
+    if (request instanceof Request && request.method !== "GET") return false;
+    const raw = typeof request === "string" ? request : request instanceof Request ? request.url : "";
+    if (!raw) return false;
+    try {
+        const url = new URL(raw, self.location.origin);
+        return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+        return false;
+    }
+};
+
 const safeCacheMatch = async (
     cache: Cache | null | undefined,
     requestLike: RequestInfo | URL | null | undefined
@@ -457,7 +470,7 @@ const safeCacheMatch = async (
             : request instanceof Request
               ? request
               : undefined;
-    if (!key) return undefined;
+    if (!key || !isCacheApiKey(key)) return undefined;
     try {
         return await cache?.match?.(key);
     } catch (error) {
@@ -468,7 +481,7 @@ const safeCacheMatch = async (
 
 const safeCachesMatch = async (requestLike: RequestInfo | URL | null | undefined): Promise<Response | undefined> => {
     const request = toCacheRequestInfo(requestLike);
-    if (!request) return undefined;
+    if (!request || !isCacheApiKey(request)) return undefined;
     try {
         return await caches?.match?.(request);
     } catch (error) {
@@ -695,6 +708,8 @@ if (manifest && !isViteDevServiceWorker) {
         const url = typeof entry === "string" ? entry : String(entry?.url || "");
         // icon.ico is non-critical and intermittently 408s in some deploys;
         // keep SW install resilient by excluding it from hard precache.
+        // WHY: Workbox maps `/` → precached `index.html`; stale HTML + new `com/app.js` desyncs exports.
+        if (/(^|\/)index\.html$/i.test(url)) return false;
         return !/\/pwa\/icons\/icon\.ico(?:$|\?)/i.test(url);
     });
     precacheAndRoute(filteredManifest);
@@ -1388,24 +1403,32 @@ if (isViteDevServiceWorker) {
         })
     );
 } else {
-    setDefaultHandler(
-        new StaleWhileRevalidate({
-            cacheName: "default-cache",
-            fetchOptions: {
-                // Never force credentials=include for cross-origin requests (breaks many CDNs with ACAO="*").
-                // same-origin keeps cookies for same-origin only.
-                credentials: "same-origin",
-                priority: "auto",
-                cache: "force-cache",
-            },
-            plugins: [
-                new ExpirationPlugin({
-                    maxEntries: 120,
-                    maxAgeSeconds: 1800,
-                }),
-            ],
-        })
-    );
+    const defaultGet = new StaleWhileRevalidate({
+        cacheName: "default-cache",
+        fetchOptions: {
+            // Never force credentials=include for cross-origin requests (breaks many CDNs with ACAO="*").
+            // same-origin keeps cookies for same-origin only.
+            credentials: "same-origin",
+            priority: "auto",
+            cache: "force-cache",
+        },
+        plugins: [
+            new ExpirationPlugin({
+                maxEntries: 120,
+                maxAgeSeconds: 1800,
+            }),
+        ],
+    });
+    /* WHY: Workbox SWR calls Cache.match on every unmatched request; POST/blob throw TypeError. */
+    setDefaultHandler(async (args) => {
+        const request = args?.request;
+        const method = request?.method || "GET";
+        const url = String(request?.url || "");
+        if (method !== "GET" || url.startsWith("blob:") || url.startsWith("data:")) {
+            return fetch(request);
+        }
+        return defaultGet.handle(args);
+    });
 }
 
 // Assets (JS/CSS) — skip in dev so requests are not handled by NetworkFirst + workbox cache before the default handler.
@@ -2083,7 +2106,7 @@ self.addEventListener?.('activate', (e: any) => {
     e?.waitUntil?.(
         Promise.all([
             (self as any).clients?.claim?.(),
-            (self as any).registration?.navigationPreload?.enable?.() ?? Promise.resolve(),
+            (self as any).registration?.navigationPreload?.disable?.() ?? Promise.resolve(),
         ])
             .then(() => notifyClients("sw-activated"))
             .catch(() => notifyClients("sw-activated"))

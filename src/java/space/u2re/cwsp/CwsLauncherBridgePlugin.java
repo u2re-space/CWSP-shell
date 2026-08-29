@@ -320,6 +320,29 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 return LauncherCoordinator.openUri(
                         getContext(), uri, packageName, chooser, chooserTitle, mimeType);
             }
+            case "launcher:open-bytes": {
+                String name = payload != null ? payload.getString("name", "shared.bin") : "shared.bin";
+                String mimeType = payload != null ? payload.getString("mimeType", "") : "";
+                if (mimeType == null || mimeType.isEmpty()) {
+                    mimeType = payload != null ? payload.getString("type", "") : "";
+                }
+                String data = payload != null ? payload.getString("data", "") : "";
+                String packageName = payload != null ? payload.getString("packageName", "") : "";
+                boolean chooser = false;
+                if (payload != null && payload.has("chooser")) {
+                    try {
+                        Object rawChooser = payload.get("chooser");
+                        if (rawChooser instanceof Boolean) {
+                            chooser = (Boolean) rawChooser;
+                        }
+                    } catch (Exception ignored) {
+                        chooser = false;
+                    }
+                }
+                String chooserTitle = payload != null ? payload.getString("title", "Open") : "Open";
+                return LauncherCoordinator.openBytes(
+                        getContext(), name, mimeType, data, packageName, chooser, chooserTitle);
+            }
             case "launcher:pending-pin":
                 return LauncherCoordinator.consumePendingPin(getContext());
             case "launcher:ack-pin":
@@ -373,10 +396,14 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 return widgetHost.hideAll();
             }
             case "storage:list":
+            case "storage:read":
+            case "storage:uri":
             case "files:storage:status":
             case "files:storage:show-paths": {
                 if (storageHost == null) storageHost = new CwsStorageHost(this);
                 if ("storage:list".equals(channel)) return storageHost.list(payload);
+                if ("storage:read".equals(channel)) return storageHost.read(payload);
+                if ("storage:uri".equals(channel)) return storageHost.uri(payload);
                 return storageHost.showPaths();
             }
             case "storage:all-files-status":

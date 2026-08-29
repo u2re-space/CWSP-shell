@@ -12,6 +12,11 @@ export interface LauncherAppEntry {
     label: string;
     componentName: string;
     iconCacheKey: string;
+    firstInstallTime?: number;
+    lastUpdateTime?: number;
+    category?: string;
+    installer?: string;
+    system?: boolean;
 }
 
 export type LauncherIconVariantId = "default" | "monochrome" | "foreground";
@@ -510,6 +515,18 @@ export async function storageList(
     });
     const echo = (r.echo || r) as { entries?: StorageListEntry[] };
     return Array.isArray(echo.entries) ? echo.entries : [];
+}
+
+export async function storageRead(
+    root: "sdcard" | "saf",
+    path: string
+): Promise<{ data?: string; name?: string; mime?: string } | null> {
+    const r = await invokeCwsPlatformIPC({
+        channel: "storage:read",
+        payload: { root, path }
+    });
+    const echo = (r.echo || r) as { data?: string; name?: string; mime?: string };
+    return echo?.data ? echo : null;
 }
 
 export async function storagePickSaf(): Promise<string> {

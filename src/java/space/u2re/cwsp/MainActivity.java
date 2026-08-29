@@ -237,6 +237,29 @@ public class MainActivity extends BridgeActivity {
         boolean process = Intent.ACTION_PROCESS_TEXT.equals(action);
         if (!send && !view && !process) return null;
 
+        /* WHY: Transfer opens Explorer with results via space.u2re.explorer://open?path= */
+        if (view) {
+            try {
+                Uri data = intent.getData();
+                String sch =
+                        data != null && data.getScheme() != null
+                                ? data.getScheme().toLowerCase(Locale.US)
+                                : "";
+                if (sch.startsWith("space.u2re.")) {
+                    String path = data.getQueryParameter("path");
+                    if (path == null || path.isEmpty()) path = data.getQueryParameter("src");
+                    if (path != null && !path.trim().isEmpty()) {
+                        JSObject open = new JSObject();
+                        open.put("url", path.trim());
+                        open.put("text", path.trim());
+                        return open;
+                    }
+                }
+            } catch (Exception ignored) {
+                /* fall through */
+            }
+        }
+
         JSObject share = new JSObject();
         String text = intent.getStringExtra(Intent.EXTRA_TEXT);
         if (process) {
@@ -270,7 +293,10 @@ public class MainActivity extends BridgeActivity {
         try {
             intent.replaceExtras((Bundle) null);
             intent.setAction(Intent.ACTION_MAIN);
-            intent.addCategory(Intent.CATEGORY_HOME);
+            /* WHY: CATEGORY_HOME is launcher-only. Document/Explorer must not become a HOME intent. */
+            if (BuildConfig.CWSP_LAUNCHER_SKU) {
+                intent.addCategory(Intent.CATEGORY_HOME);
+            }
         } catch (Exception e) {
             Log.w(TAG, "clear pin intent failed", e);
         }

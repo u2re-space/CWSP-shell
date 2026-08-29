@@ -9,6 +9,7 @@ import {
     rolldownCodeSplittingGroups,
     rewriteVitePreloadPlugin,
 } from "./vite-chunk-placement.mjs";
+import { applyFestLibraryMode } from "../../../modules/shared/fest-web-libs.mjs";
 
 //
 import https from "../private/https/certificate.mjs";
@@ -867,22 +868,25 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
     }
 
     //
-    return {
-        "base": "",
-        /** Keep Vite cache inside the app; avoids workspace-root .vite clashes when cwd differs. */
-        cacheDir: resolve(__dirname, "node_modules/.vite"),
-        rollupOptions, plugins, resolve: $resolve, build, css, optimizeDeps, server, worker: {format: 'es'},
-        define: { 'process.env': {} },
-        customLogger: {
-            warn: (message, options) => {
-                if (!isIgnorableViteWarning(message)) {
-                    viteLogger.warn(message, options);
-                }
+    return applyFestLibraryMode(
+        {
+            "base": "",
+            /** Keep Vite cache inside the app; avoids workspace-root .vite clashes when cwd differs. */
+            cacheDir: resolve(__dirname, "node_modules/.vite"),
+            rollupOptions, plugins, resolve: $resolve, build, css, optimizeDeps, server, worker: {format: 'es'},
+            define: { 'process.env': {} },
+            customLogger: {
+                warn: (message, options) => {
+                    if (!isIgnorableViteWarning(message)) {
+                        viteLogger.warn(message, options);
+                    }
+                },
+                info: (...args) => viteLogger.info(...args),
+                error: (...args) => viteLogger.error(...args),
             },
-            info: (...args) => viteLogger.info(...args),
-            error: (...args) => viteLogger.error(...args),
         },
-    };
+        { isBuild, workspaceRoot },
+    );
 }
 
 //

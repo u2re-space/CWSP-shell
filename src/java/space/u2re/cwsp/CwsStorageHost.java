@@ -25,7 +25,14 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 
+import android.util.Base64;
+
+import androidx.core.content.FileProvider;
+
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
 
 /**
  * Native storage for Explorer: {@code /sdcard/} via {@code MANAGE_EXTERNAL_STORAGE}
@@ -112,6 +119,22 @@ public final class CwsStorageHost {
         String path = payload != null ? payload.getString("path", "/") : "/";
         if ("saf".equals(root)) return listSaf(path);
         return listSdcard(path);
+    }
+
+    /** Read one file as a data URL. Used by Explorer dbl-tap on `/sdcard/` `/saf/`. */
+    JSObject read(JSObject payload) {
+        String root = payload != null ? payload.getString("root", "sdcard") : "sdcard";
+        String path = payload != null ? payload.getString("path", "/") : "/";
+        if ("saf".equals(root)) return readSaf(path);
+        return readSdcard(path);
+    }
+
+    /** content:// (FileProvider / SAF) so CWSP-document can ACTION_VIEW without copying bytes. */
+    JSObject uri(JSObject payload) {
+        String root = payload != null ? payload.getString("root", "sdcard") : "sdcard";
+        String path = payload != null ? payload.getString("path", "/") : "/";
+        if ("saf".equals(root)) return uriSaf(path);
+        return uriSdcard(path);
     }
 
     JSObject allFilesStatus() {
@@ -203,6 +226,240 @@ public final class CwsStorageHost {
         echo.put("allFilesAccess", isAllFilesGranted());
         r.put("echo", echo);
         return r;
+    }
+
+    private static final long MAX_READ_BYTES = 16L * 1024 * 1024;
+
+    private JSObject uriSdcard(String path) {
+        JSObject r = base(true, "storage:uri");
+        JSObject echo = new JSObject();
+        echo.put("root", "sdcard");
+        File base = Environment.getExternalStorageDirectory();
+        File file = base != null ? resolveUnder(base, path) : null;
+        if (file == null || !file.isFile()) {
+            echo.put("error", "not a file");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
+        Context ctx = plugin.getContext();
+        String uri = "";
+        if (ctx != null) {
+            try {
+                uri = FileProvider.getUriForFile(
+                                ctx, ctx.getPackageName() + ".fileprovider", file)
+                        .toString();
+            } catch (Exception e) {
+                uri = Uri.fromFile(file).toString();
+            }
+        }
+        echo.put("uri", uri);
+        echo.put("name", file.getName());
+        echo.put("mime", guessMime(file.getName()));
+        r.put("echo", echo);
+        return r;
+    }
+
+    private JSObject uriSaf(String path) {
+        JSObject r = base(true, "storage:uri");
+        JSObject echo = new JSObject();
+        echo.put("root", "saf");
+        String stored = readSafUri();
+        if (stored.isEmpty()) {
+            echo.put("error", "No SAF tree mounted.");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
+        Context ctx = plugin.getContext();
+        if (ctx == null) {
+            echo.put("error", "no context");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
+        try {
+            Uri tree = Uri.parse(stored);
+            String docId = walkSafFileDocumentId(ctx.getContentResolver(), tree, path);
+            if (docId == null) {
+                echo.put("error", "not found");
+                r.put("ok", false);
+                r.put("echo", echo);
+                return r;
+            }
+            Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree, docId);
+            String name = lastPathSegment(path);
+            echo.put("uri", doc.toString());
+            echo.put("name", name);
+            echo.put("mime", guessMime(name));
+        } catch (Exception e) {
+            Log.w(TAG, "uriSaf failed", e);
+            echo.put("error", String.valueOf(e.getMessage()));
+            r.put("ok", false);
+        }
+        r.put("echo", echo);
+        return r;
+    }
+
+    private JSObject readSdcard(String path) {
+        JSObject r = base(true, "storage:read");
+        JSObject echo = new JSObject();
+        echo.put("root", "sdcard");
+        File base = Environment.getExternalStorageDirectory();
+        File file = base != null ? resolveUnder(base, path) : null;
+        if (file == null || !file.isFile()) {
+            echo.put("error", "not a file");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
+        if (file.length() <= 0 || file.length() > MAX_READ_BYTES) {
+            echo.put("error", file.length() > MAX_READ_BYTES ? "too large" : "empty");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
+        try (FileInputStream in = new FileInputStream(file)) {
+            fillReadEcho(echo, in, file.getName(), guessMime(file.getName()), file.length());
+        } catch (Exception e) {
+            Log.w(TAG, "readSdcard failed", e);
+            echo.put("error", String.valueOf(e.getMessage()));
+            r.put("ok", false);
+        }
+        r.put("echo", echo);
+        return r;
+    }
+
+    private JSObject readSaf(String path) {
+        JSObject r = base(true, "storage:read");
+        JSObject echo = new JSObject();
+        echo.put("root", "saf");
+        String stored = readSafUri();
+        if (stored.isEmpty()) {
+            echo.put("error", "No SAF tree mounted.");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
+        Context ctx = plugin.getContext();
+        if (ctx == null) {
+            echo.put("error", "no context");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
+        try {
+            Uri tree = Uri.parse(stored);
+            String docId = walkSafFileDocumentId(ctx.getContentResolver(), tree, path);
+            if (docId == null) {
+                echo.put("error", "not found");
+                r.put("ok", false);
+                r.put("echo", echo);
+                return r;
+            }
+            Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree, docId);
+            String name = lastPathSegment(path);
+            try (InputStream in = ctx.getContentResolver().openInputStream(doc)) {
+                if (in == null) {
+                    echo.put("error", "unreadable");
+                    r.put("ok", false);
+                } else {
+                    fillReadEcho(echo, in, name, guessMime(name), -1);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "readSaf failed", e);
+            echo.put("error", String.valueOf(e.getMessage()));
+            r.put("ok", false);
+        }
+        r.put("echo", echo);
+        return r;
+    }
+
+    private static void fillReadEcho(JSObject echo, InputStream in, String name, String mime, long knownSize)
+            throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buf = new byte[16 * 1024];
+        long total = 0;
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            total += n;
+            if (total > MAX_READ_BYTES) {
+                throw new Exception("too large");
+            }
+            out.write(buf, 0, n);
+        }
+        byte[] bytes = out.toByteArray();
+        String type = mime == null || mime.isEmpty() ? "application/octet-stream" : mime;
+        echo.put("name", name != null && !name.isEmpty() ? name : "file");
+        echo.put("mime", type);
+        echo.put("size", knownSize > 0 ? knownSize : bytes.length);
+        echo.put("data", "data:" + type + ";base64," + Base64.encodeToString(bytes, Base64.NO_WRAP));
+    }
+
+    private static String lastPathSegment(String path) {
+        if (path == null) return "file";
+        String[] parts = path.split("/");
+        for (int i = parts.length - 1; i >= 0; i--) {
+            if (parts[i] != null && !parts[i].isEmpty()) return parts[i];
+        }
+        return "file";
+    }
+
+    private static String guessMime(String name) {
+        String n = name != null ? name.toLowerCase() : "";
+        if (n.endsWith(".txt") || n.endsWith(".log") || n.endsWith(".csv")) return "text/plain";
+        if (n.endsWith(".md") || n.endsWith(".markdown")) return "text/markdown";
+        if (n.endsWith(".html") || n.endsWith(".htm")) return "text/html";
+        if (n.endsWith(".json")) return "application/json";
+        if (n.endsWith(".png")) return "image/png";
+        if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+        if (n.endsWith(".gif")) return "image/gif";
+        if (n.endsWith(".webp")) return "image/webp";
+        if (n.endsWith(".svg")) return "image/svg+xml";
+        if (n.endsWith(".pdf")) return "application/pdf";
+        return "application/octet-stream";
+    }
+
+    /** Walk a SAF tree to a file document id (last segment is the file). */
+    private static String walkSafFileDocumentId(ContentResolver cr, Uri tree, String path) {
+        String docId = DocumentsContract.getTreeDocumentId(tree);
+        if (path == null || path.isEmpty() || "/".equals(path)) return null;
+        String[] segs = path.split("/");
+        int last = -1;
+        for (int i = 0; i < segs.length; i++) {
+            if (segs[i] != null && !segs[i].isEmpty()) last = i;
+        }
+        if (last < 0) return null;
+        for (int i = 0; i < segs.length; i++) {
+            String seg = segs[i];
+            if (seg == null || seg.isEmpty()) continue;
+            boolean wantFile = i == last;
+            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId);
+            String next = null;
+            try (Cursor cursor = cr.query(
+                    children,
+                    new String[]{
+                            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                            DocumentsContract.Document.COLUMN_MIME_TYPE
+                    },
+                    null, null, null)) {
+                if (cursor == null) break;
+                while (cursor.moveToNext()) {
+                    String name = cursor.getString(1);
+                    String mime = cursor.getString(2);
+                    boolean isDir = DocumentsContract.Document.MIME_TYPE_DIR.equals(mime);
+                    if (seg.equals(name) && (wantFile ? !isDir : isDir)) {
+                        next = cursor.getString(0);
+                        break;
+                    }
+                }
+            }
+            if (next == null) return null;
+            docId = next;
+        }
+        return docId;
     }
 
     private JSObject listSdcard(String path) {
