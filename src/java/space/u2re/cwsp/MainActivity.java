@@ -1,8 +1,8 @@
 /*
  * Filename: MainActivity.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/MainActivity.java
- * Change date and time: 08.35.00_30.08.2026
- * Reason for changes: Directory VIEW / Transfer Open-in-Folder maps to Explorer virtual path.
+ * Change date and time: 12.24.00_30.08.2026
+ * Reason for changes: onResume kicks JS theme/adopted-sheet restore after background.
  */
 
 package space.u2re.cwsp;
@@ -96,6 +96,11 @@ public class MainActivity extends BridgeActivity {
             Bridge bridge = getBridge();
             if (bridge != null && bridge.getWebView() != null) {
                 DisplayRefreshUnlock.applyToWebView(bridge.getWebView());
+                /* WHY: visibilitychange is not reliable after recents; adopted sheets stay empty. */
+                bridge.eval(
+                        "(function(){try{var f=globalThis.__CWSP_THEME_RESUME__;"
+                                + "if(typeof f==='function'){f(true);return\"1\"}return\"0\"}catch(e){return\"0\"}})()",
+                        value -> {});
             }
         } catch (Exception e) {
             Log.w(TAG, "refresh unlock onResume failed", e);

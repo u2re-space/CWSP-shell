@@ -405,6 +405,7 @@ public class CwsLauncherBridgePlugin extends Plugin {
             case "storage:uri":
             case "storage:open":
             case "storage:share":
+            case "storage:delete":
             case "storage:realpath":
             case "files:storage:status":
             case "files:storage:show-paths": {
@@ -414,6 +415,7 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 if ("storage:uri".equals(channel)) return storageHost.uri(payload);
                 if ("storage:open".equals(channel)) return storageHost.open(payload);
                 if ("storage:share".equals(channel)) return storageHost.share(payload);
+                if ("storage:delete".equals(channel)) return storageHost.delete(payload);
                 if ("storage:realpath".equals(channel)) return storageHost.realPath(payload);
                 return storageHost.showPaths();
             }

@@ -1,8 +1,8 @@
 /*
  * Filename: CwsStorageHost.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/CwsStorageHost.java
- * Change date: 11.10.00_30.08.2026
- * Reason: storage:share (ACTION_SEND chooser) + storage:realpath.
+ * Change date: 12.40.00_30.08.2026
+ * Reason: storage:delete for /sdcard/ + /saf/ (file and folder).
  */
 package space.u2re.cwsp;
 
@@ -182,6 +182,17 @@ public final class CwsStorageHost {
         Context ctx = plugin.getContext();
         if (ctx == null) return fail("storage:share", "no context");
         return LauncherCoordinator.sendToPackage(ctx, uri, name, mime, "", true, title);
+    }
+
+    /**
+     * WHY: Explorer Delete used OPFS {@code remove()} — Capacitor {@code /sdcard/} {@code /saf/}
+     * never hit the filesystem. All-files or SAF write grant required.
+     */
+    JSObject delete(JSObject payload) {
+        String root = payload != null ? payload.getString("root", "sdcard") : "sdcard";
+        String path = payload != null ? payload.getString("path", "/") : "/";
+        if ("saf".equals(root)) return deleteSaf(path);
+        return deleteSdcard(path);
     }
 
     /**
@@ -731,6 +742,132 @@ public final class CwsStorageHost {
                         next = cursor.getString(0);
                         break;
                     }
+                }
+            }
+            if (next == null) return null;
+            docId = next;
+        }
+        return docId;
+    }
+
+    private JSObject deleteSdcard(String path) {
+        JSObject r = base(true, "storage:delete");
+        JSObject echo = new JSObject();
+        echo.put("root", "sdcard");
+        File base = Environment.getExternalStorageDirectory();
+        if (base == null) return fail("storage:delete", "no external storage");
+        File file = resolveUnder(base, path);
+        if (file == null) return fail("storage:delete", "bad path");
+        try {
+            String rootPath = base.getCanonicalPath();
+            String targetPath = file.getCanonicalPath();
+            if (targetPath.equals(rootPath) || !targetPath.startsWith(rootPath + File.separator)) {
+                return fail("storage:delete", "refused");
+            }
+        } catch (Exception e) {
+            return fail("storage:delete", "path");
+        }
+        if (!file.exists()) return fail("storage:delete", "not found");
+        if (!isAllFilesGranted() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            echo.put("error", "All-files access is required to delete /sdcard/.");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
+        boolean isDir = file.isDirectory();
+        boolean ok = deleteRecursive(file);
+        echo.put("deleted", ok);
+        echo.put("name", file.getName());
+        echo.put("kind", isDir ? "directory" : "file");
+        if (!ok) {
+            echo.put("error", "delete failed");
+            r.put("ok", false);
+        }
+        r.put("echo", echo);
+        return r;
+    }
+
+    private JSObject deleteSaf(String path) {
+        JSObject r = base(true, "storage:delete");
+        JSObject echo = new JSObject();
+        echo.put("root", "saf");
+        String stored = readSafUri();
+        if (stored.isEmpty()) return fail("storage:delete", "No SAF tree mounted.");
+        if (path == null || path.isEmpty() || "/".equals(path)) {
+            return fail("storage:delete", "refused");
+        }
+        Context ctx = plugin.getContext();
+        if (ctx == null) return fail("storage:delete", "no context");
+        try {
+            Uri tree = Uri.parse(stored);
+            ContentResolver cr = ctx.getContentResolver();
+            String docId = walkSafAnyDocumentId(cr, tree, path);
+            if (docId == null) return fail("storage:delete", "not found");
+            String treeId = DocumentsContract.getTreeDocumentId(tree);
+            if (docId.equals(treeId)) return fail("storage:delete", "refused");
+            Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree, docId);
+            boolean ok = DocumentsContract.deleteDocument(cr, doc);
+            echo.put("deleted", ok);
+            echo.put("name", lastPathSegment(path));
+            if (!ok) {
+                echo.put("error", "delete failed");
+                r.put("ok", false);
+            }
+            r.put("echo", echo);
+            return r;
+        } catch (Exception e) {
+            Log.w(TAG, "deleteSaf failed", e);
+            return fail("storage:delete", String.valueOf(e.getMessage()));
+        }
+    }
+
+    private static boolean deleteRecursive(File file) {
+        if (file == null || !file.exists()) return false;
+        if (file.isDirectory()) {
+            File[] kids = file.listFiles();
+            if (kids != null) {
+                for (File kid : kids) {
+                    if (!deleteRecursive(kid)) return false;
+                }
+            }
+        }
+        return file.delete();
+    }
+
+    /** Last path segment may be a file or a folder. Missing child → null (do not delete parent). */
+    private static String walkSafAnyDocumentId(ContentResolver cr, Uri tree, String path) {
+        String docId = DocumentsContract.getTreeDocumentId(tree);
+        if (path == null || path.isEmpty() || "/".equals(path)) return null;
+        String[] raw = path.split("/");
+        java.util.ArrayList<String> segs = new java.util.ArrayList<>();
+        for (String seg : raw) {
+            if (seg != null && !seg.isEmpty() && !".".equals(seg) && !"..".equals(seg)) {
+                segs.add(seg);
+            }
+        }
+        if (segs.isEmpty()) return null;
+        for (int i = 0; i < segs.size(); i++) {
+            String seg = segs.get(i);
+            boolean last = i == segs.size() - 1;
+            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId);
+            String next = null;
+            try (Cursor cursor = cr.query(
+                    children,
+                    new String[]{
+                            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                            DocumentsContract.Document.COLUMN_MIME_TYPE
+                    },
+                    null, null, null)) {
+                if (cursor == null) return null;
+                while (cursor.moveToNext()) {
+                    String name = cursor.getString(1);
+                    String mime = cursor.getString(2);
+                    boolean isDir = DocumentsContract.Document.MIME_TYPE_DIR.equals(mime);
+                    if (!seg.equals(name)) continue;
+                    if (!last && !isDir) continue;
+                    next = cursor.getString(0);
+                    break;
                 }
             }
             if (next == null) return null;
