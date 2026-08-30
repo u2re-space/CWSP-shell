@@ -271,7 +271,10 @@ export default async function index(mountElement: HTMLElement) {
         // Warm viewer markdown engine chunk early when route targets viewer (non-blocking).
         const prePath = getNormalizedPathname();
         if (!prePath || prePath === "viewer" || prePath === "share-target" || prePath === "share_target") {
-            void import("views/viewer")
+            // WHY: Vite emits `__vitePreload(...).catch`. If the helper is a stale
+            // com/app.js letter (not a Promise), that TypeError is sync and kills index().
+            void Promise.resolve()
+                .then(() => import("views/viewer"))
                 .then((m: { warmViewerMarkdownEngine?: () => void }) => m.warmViewerMarkdownEngine?.())
                 .catch(() => { /* optional */ });
         }

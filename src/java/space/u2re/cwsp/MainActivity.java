@@ -1,8 +1,8 @@
 /*
  * Filename: MainActivity.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/MainActivity.java
- * Change date and time: 21.42.00_23.08.2026
- * Reason for changes: Pin notify is a ping; stash slim fields only (no Intent.toUri on the bridge).
+ * Change date and time: 08.35.00_30.08.2026
+ * Reason for changes: Directory VIEW / Transfer Open-in-Folder maps to Explorer virtual path.
  */
 
 package space.u2re.cwsp;
@@ -249,11 +249,36 @@ public class MainActivity extends BridgeActivity {
                     String path = data.getQueryParameter("path");
                     if (path == null || path.isEmpty()) path = data.getQueryParameter("src");
                     if (path != null && !path.trim().isEmpty()) {
+                        String folder = path.trim();
+                        if ("/saf".equals(folder) || "/saf/".equals(folder)) {
+                            folder = "/sdcard/Download/";
+                        } else {
+                            String mapped = fileOsPathToSdcard(folder);
+                            if (mapped.isEmpty() && (folder.startsWith("content:") || folder.startsWith("file:"))) {
+                                try {
+                                    mapped = toExplorerSdcardDir(Uri.parse(folder));
+                                } catch (Exception ignored) {
+                                    mapped = "";
+                                }
+                            }
+                            if (!mapped.isEmpty()) folder = mapped;
+                        }
                         JSObject open = new JSObject();
-                        open.put("url", path.trim());
-                        open.put("text", path.trim());
+                        open.put("url", folder);
+                        open.put("text", folder);
                         return open;
                     }
+                }
+                String mime = intent.getType();
+                String ml = mime != null ? mime.toLowerCase(Locale.US) : "";
+                if ("vnd.android.document/directory".equals(ml)
+                        || "resource/folder".equals(ml)
+                        || "inode/directory".equals(ml)) {
+                    JSObject open = new JSObject();
+                    String folder = virtualFolderFromBrowseUri(data);
+                    open.put("url", folder);
+                    open.put("text", folder);
+                    return open;
                 }
             } catch (Exception ignored) {
                 /* fall through */
@@ -711,6 +736,80 @@ public class MainActivity extends BridgeActivity {
         return null;
     }
 
+    /**
+     * Map a folder VIEW onto Explorer {@code /sdcard/…/}.
+     * WHY: Transfer SAF trees are {@code primary:Download/…}, not Explorer {@code /saf/}.
+     */
+    private static String virtualFolderFromBrowseUri(Uri data) {
+        if (data == null) return "/sdcard/Download/";
+        String mapped = toExplorerSdcardDir(data);
+        return mapped.isEmpty() ? "/sdcard/Download/" : mapped;
+    }
+
+    private static String toExplorerSdcardDir(Uri uri) {
+        if (uri == null) return "";
+        if ("file".equalsIgnoreCase(uri.getScheme())) {
+            return fileOsPathToSdcard(uri.getPath());
+        }
+        String docId = "";
+        try {
+            docId = android.provider.DocumentsContract.getDocumentId(uri);
+        } catch (Exception ignored) {
+            /* tree */
+        }
+        if (docId == null || docId.isEmpty()) {
+            try {
+                docId = android.provider.DocumentsContract.getTreeDocumentId(uri);
+            } catch (Exception ignored) {
+                /* last segment */
+            }
+        }
+        if (docId == null || docId.isEmpty()) {
+            java.util.List<String> segs = uri.getPathSegments();
+            if (segs != null) {
+                for (int i = segs.size() - 1; i >= 0; i--) {
+                    String seg = segs.get(i);
+                    if (seg != null && seg.contains(":")) {
+                        docId = seg;
+                        break;
+                    }
+                }
+            }
+        }
+        String fromDoc = documentIdToSdcard(docId);
+        if (!fromDoc.isEmpty()) return fromDoc;
+        return fileOsPathToSdcard(uri.getPath());
+    }
+
+    private static String documentIdToSdcard(String docId) {
+        if (docId == null || docId.isEmpty()) return "";
+        int colon = docId.indexOf(':');
+        if (colon < 0) return "";
+        String volume = docId.substring(0, colon);
+        String rel = docId.substring(colon + 1).replace('\\', '/');
+        while (rel.startsWith("/")) rel = rel.substring(1);
+        if (!"primary".equalsIgnoreCase(volume) && !"home".equalsIgnoreCase(volume)) {
+            return "";
+        }
+        if (rel.isEmpty()) return "/sdcard/";
+        return rel.endsWith("/") ? "/sdcard/" + rel : "/sdcard/" + rel + "/";
+    }
+
+    private static String fileOsPathToSdcard(String path) {
+        if (path == null || path.trim().isEmpty()) return "";
+        String p = path.trim().replace('\\', '/');
+        String[] prefixes = { "/storage/emulated/0", "/mnt/sdcard", "/sdcard" };
+        for (String pre : prefixes) {
+            if (p.equals(pre) || p.startsWith(pre + "/")) {
+                String rest = p.substring(pre.length());
+                if (rest.isEmpty() || "/".equals(rest)) return "/sdcard/";
+                if (!rest.startsWith("/")) rest = "/" + rest;
+                return rest.endsWith("/") ? "/sdcard" + rest : "/sdcard" + rest + "/";
+            }
+        }
+        return "";
+    }
+
     private static String firstNonEmpty(String a, String b) {
         if (a != null && !a.trim().isEmpty()) return a.trim();
         if (b != null && !b.trim().isEmpty()) return b.trim();
@@ -780,9 +879,12 @@ public class MainActivity extends BridgeActivity {
                     return;
                 }
                 bridge.eval(
-                        "(function(){try{var s=globalThis.__CWSP_LAUNCHER_HOME__;"
-                                + "return s&&s.handleBackPress&&s.handleBackPress()?\"1\":\"0\"}"
-                                + "catch(e){return \"0\"}})()",
+                        "(function(){try{"
+                                + "var n=globalThis.__CWSP_NATIVE_BACK__;"
+                                + "if(n&&n.handleBackPress&&n.handleBackPress())return\"1\";"
+                                + "var s=globalThis.__CWSP_LAUNCHER_HOME__;"
+                                + "return s&&s.handleBackPress&&s.handleBackPress()?\"1\":\"0\""
+                                + "}catch(e){return\"0\"}})()",
                         value -> {
                             boolean consumed = value != null && value.contains("1");
                             if (consumed) return;
