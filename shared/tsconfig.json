@@ -53,6 +53,9 @@
             "@fest-lib/dom": [
                 "./fest/dom/index.ts"
             ],
+            "@fest-lib/style-lib": [
+                "./fest/style-lib/index.ts"
+            ],
             "@fest-lib/fl-ui": [
                 "./fest/fl-ui/index.ts"
             ],

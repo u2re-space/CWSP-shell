@@ -471,6 +471,8 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
             { find: "@phosphor-icons/core", replacement: phosphorCoreRoot },
             /* Dev server: ensure this id always resolves (tsconfig path is relative to app root; some setups mis-resolve). */
             { find: "@fest-lib/veela/runtime", replacement: veelaVariantRuntimeTs },
+            /* WHY: preserveSymlinks + app-tree copies break relative veela.css; keep ?inline. */
+            { find: /^@fest-lib\/veela\/scss\/(.*)$/, replacement: `${resolve(workspaceRoot, "modules/projects/veela.css/src/scss")}/$1` },
             /* WHY: barrel @fest-lib/lure re-export collided on pickMarkdownFile (Rolldown). */
             { find: /^@fest-lib\/lure\/markdown-assets$/, replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/markdown-assets.ts") },
             /* Rolldown: bare tsconfig alias loses `?inline` imports on this key (viewer-view Markdown typography). */
@@ -750,6 +752,8 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
                 "**/runtime/**",
                 "**/externals/**",
                 "**/.cursor/**",
+                // WHY: explorer-view/src/views used to symlink the views catalog (self-nest → ELOOP).
+                "**/views/explorer/views/**",
             ],
         },
         configureServer(server) {
@@ -831,6 +835,7 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
             polyfill: true,
             include: [
                 "@fest-lib/dom",
+                "@fest-lib/style-lib",
                 "@fest-lib/lure",
                 "@fest-lib/object",
                 "@fest-lib/uniform",

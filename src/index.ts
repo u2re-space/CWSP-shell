@@ -271,12 +271,14 @@ export default async function index(mountElement: HTMLElement) {
         // Warm viewer markdown engine chunk early when route targets viewer (non-blocking).
         const prePath = getNormalizedPathname();
         if (!prePath || prePath === "viewer" || prePath === "share-target" || prePath === "share_target") {
-            // WHY: Vite emits `__vitePreload(...).catch`. If the helper is a stale
-            // com/app.js letter (not a Promise), that TypeError is sync and kills index().
-            void Promise.resolve()
-                .then(() => import("views/viewer"))
-                .then((m: { warmViewerMarkdownEngine?: () => void }) => m.warmViewerMarkdownEngine?.())
-                .catch(() => { /* optional */ });
+            // WHY: Vite emits `__vitePreload(...).catch`. A stale com/app.js letter
+            // (GLitElement) returns a class — that TypeError is sync and kills index().
+            void (async () => {
+                try {
+                    const m = await import("views/viewer");
+                    (m as { warmViewerMarkdownEngine?: () => void }).warmViewerMarkdownEngine?.();
+                } catch { /* optional */ }
+            })();
         }
         void withTimeout(pwaPromise, "initPWA", 5000, null, { warnOnTimeout: false })
             .then(() => {

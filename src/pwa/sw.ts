@@ -703,14 +703,25 @@ const isViteDevServiceWorker = import.meta.env.DEV;
 // @ts-ignore
 const manifest = self.__WB_MANIFEST;
 cleanupOutdatedCaches();
+/** Unhashed Vite barrels — export letters (`Un` = preload) change per build; filename does not. */
+const isUnhashedSharedBarrel = (url: string): boolean =>
+    /(?:^|\/)com\/(?:app|service)\.js(?:$|\?)/i.test(url) ||
+    /(?:^|\/)fest\/[\w.-]+\.js(?:$|\?)/i.test(url) ||
+    /(?:^|\/)shells\/boot-index\.js(?:$|\?)/i.test(url) ||
+    /(?:^|\/)chunks\/src\d*\.js(?:$|\?)/i.test(url);
+
 if (manifest && !isViteDevServiceWorker) {
     const filteredManifest = manifest.filter((entry: any) => {
         const url = typeof entry === "string" ? entry : String(entry?.url || "");
         // icon.ico is non-critical and intermittently 408s in some deploys;
         // keep SW install resilient by excluding it from hard precache.
+        if (/\/pwa\/icons\/icon\.ico(?:$|\?)/i.test(url)) return false;
+        // WHY: hashed `index-*.js` hits network; cached `src2.js` + new `com/app.js`
+        // binds `__vitePreload` to GLitElement → `.catch is not a function`.
+        if (isUnhashedSharedBarrel(url)) return false;
         // WHY: Workbox maps `/` → precached `index.html`; stale HTML + new `com/app.js` desyncs exports.
         if (/(^|\/)index\.html$/i.test(url)) return false;
-        return !/\/pwa\/icons\/icon\.ico(?:$|\?)/i.test(url);
+        return true;
     });
     precacheAndRoute(filteredManifest);
 }
@@ -1053,6 +1064,10 @@ async function handleAssetRequest(arg: any): Promise<Response> {
                            pathname.endsWith('.svg') ||
                            pathname.endsWith('.png') ||
                            pathname === '/sw.js';
+
+    if (isUnhashedSharedBarrel(request.url) || isUnhashedSharedBarrel(pathname)) {
+        return fetch(request, { cache: "no-store", credentials: "same-origin" });
+    }
 
     if (isCriticalAsset) {
         try {
@@ -1431,11 +1446,23 @@ if (isViteDevServiceWorker) {
     });
 }
 
+// INVARIANT: never serve stale `com/app.js` / `chunks/src2.js` from precache (named-export desync).
+registerRoute(
+    ({ url }) => isUnhashedSharedBarrel(String(url?.pathname || url?.href || "")),
+    new NetworkOnly({
+        fetchOptions: {
+            credentials: "same-origin",
+            cache: "no-store",
+        },
+    })
+);
+
 // Assets (JS/CSS) — skip in dev so requests are not handled by NetworkFirst + workbox cache before the default handler.
 registerRoute(
     ({ url, request }) =>
         !isViteDevServiceWorker &&
         !safeIsUserScopePath(url?.pathname || "") &&
+        !isUnhashedSharedBarrel(String(url?.pathname || url?.href || "")) &&
         (request?.destination === "script" ||
             request?.destination === "style" ||
             request?.destination === "worker" ||
@@ -2647,7 +2674,7 @@ registerRoute(
 registerRoute(
     ({ url }) => {
         const pathname = url?.pathname;
-        return pathname && !safeIsUserScopePath(pathname) && (
+        return pathname && !safeIsUserScopePath(pathname) && !isUnhashedSharedBarrel(pathname) && (
             pathname.endsWith('.js') ||
             pathname.endsWith('.css') ||
             pathname.endsWith('.svg') ||

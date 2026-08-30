@@ -8,6 +8,7 @@ import { dirname, extname, join, resolve } from "node:path";
  *
  * `src/core`, `src/com`, `fest/lure` (lur.e), and `fest/fl-ui` (fl.ui) are co-located into `com/app.js`
  * to avoid cross-chunk circular init ordering (TDZ: e.g. `makeUIState` / `observe`, fl-ui ↔ lure).
+ * `style.ts` stays isolated as `fest/style-lib.js` (library-mode + hoist).
  * Rollup may still warn about circular chunks between slices; the build completes.
  */
 
@@ -28,6 +29,7 @@ const FEST_DIR_TO_IMPORT = {
     "core.ts": "core",
     "dom.ts": "dom",
     "object.ts": "object",
+    "style.ts": "style-lib",
     "veela.css": "veela",
     "lur.e": "lure",
     "icon.ts": "icon",
@@ -333,11 +335,11 @@ export function relocateWorkerBundleAssetsPlugin() {
 const PRELOAD_SHIM =
     "const __vitePreload = (baseModule) => Promise.resolve().then(() => baseModule());\n";
 
-/** FIND:vite-preload Rolldown still binds `__vitePreload` to unhashed com/app.js. */
+/** FIND:vite-preload Rolldown binds `__vitePreload` to a letter on unhashed barrels. */
 const stripPreloadFromAppImports = (text) => {
     let changed = false;
     const next = text.replace(
-        /import\s*\{([^}]*)\}\s*from\s*(["'][^"']*com\/app\.js["'])\s*;?/g,
+        /import\s*\{([^}]*)\}\s*from\s*(["'][^"']+["'])\s*;?/g,
         (full, spec, from) => {
             if (!/\b__vitePreload\b/.test(spec)) return full;
             changed = true;
@@ -352,9 +354,12 @@ const stripPreloadFromAppImports = (text) => {
             return `import { ${cleaned} } from ${from};`;
         },
     );
-    if (!changed) return text;
-    if (!/const\s+__vitePreload\s*=/.test(next)) return PRELOAD_SHIM + next;
-    return next;
+    let out = changed ? next : text;
+    if (/\b__vitePreload\s*\(/.test(out) && !/const\s+__vitePreload\s*=/.test(out)) {
+        out = PRELOAD_SHIM + out;
+        changed = true;
+    }
+    return changed ? out : text;
 };
 
 export function rewriteVitePreloadBinding(outDir) {
@@ -383,7 +388,7 @@ export function rewriteVitePreloadBinding(outDir) {
             } catch {
                 continue;
             }
-            if (!text.includes("__vitePreload") || !text.includes("com/app.js")) continue;
+            if (!text.includes("__vitePreload")) continue;
             const next = stripPreloadFromAppImports(text);
             if (next === text) continue;
             writeFileSync(abs, next);
