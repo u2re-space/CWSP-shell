@@ -361,6 +361,11 @@ public class CwsLauncherBridgePlugin extends Plugin {
             case "clipboard:read-local":
             case "clipboard:paste-remote":
                 return clipboardRead(channel);
+            case "clipboard:write-local-image":
+            case "storage:copy-image": {
+                if (storageHost == null) storageHost = new CwsStorageHost(this);
+                return storageHost.copyImage(payload);
+            }
             case "widget:list": {
                 if (widgetHost == null) widgetHost = new CwsWidgetHost(this);
                 widgetHost.startListening();
@@ -399,6 +404,8 @@ public class CwsLauncherBridgePlugin extends Plugin {
             case "storage:read":
             case "storage:uri":
             case "storage:open":
+            case "storage:share":
+            case "storage:realpath":
             case "files:storage:status":
             case "files:storage:show-paths": {
                 if (storageHost == null) storageHost = new CwsStorageHost(this);
@@ -406,6 +413,8 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 if ("storage:read".equals(channel)) return storageHost.read(payload);
                 if ("storage:uri".equals(channel)) return storageHost.uri(payload);
                 if ("storage:open".equals(channel)) return storageHost.open(payload);
+                if ("storage:share".equals(channel)) return storageHost.share(payload);
+                if ("storage:realpath".equals(channel)) return storageHost.realPath(payload);
                 return storageHost.showPaths();
             }
             case "storage:all-files-status":

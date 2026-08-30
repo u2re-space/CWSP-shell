@@ -1,15 +1,20 @@
 /*
  * Filename: CwsStorageHost.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/CwsStorageHost.java
- * Change date: 01.20.00_30.08.2026
- * Reason: storage:open — FileProvider SEND/VIEW from Explorer /sdcard/ without JS bytes.
+ * Change date: 11.10.00_30.08.2026
+ * Reason: storage:share (ACTION_SEND chooser) + storage:realpath.
  */
 package space.u2re.cwsp;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipDescription;
+import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.content.SharedPreferences;
 import android.content.UriPermission;
 import android.database.Cursor;
@@ -32,6 +37,7 @@ import androidx.core.content.FileProvider;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 
 /**
@@ -141,6 +147,206 @@ public final class CwsStorageHost {
      * WHY: Explorer tap on {@code /sdcard/} must not copy bytes through the WebView.
      * Resolve FileProvider/SAF, then SEND to a sibling SKU or VIEW+chooser.
      */
+    /**
+     * ACTION_SEND + chooser. Direct Share targets appear in the system sheet.
+     */
+    JSObject share(JSObject payload) {
+        String mimeType = payload != null ? payload.getString("mimeType", "") : "";
+        if (mimeType == null || mimeType.isEmpty()) {
+            mimeType = payload != null ? payload.getString("type", "") : "";
+        }
+        if (mimeType == null) mimeType = "";
+        String title = payload != null ? payload.getString("title", "Share") : "Share";
+        if (title == null || title.trim().isEmpty()) title = "Share";
+        JSObject resolved = uri(payload);
+        boolean ok = false;
+        try {
+            ok = resolved.getBoolean("ok", false);
+        } catch (Exception ignored) {
+            /* Capacitor JSObject */
+        }
+        JSObject echo = null;
+        try {
+            echo = resolved.getJSObject("echo");
+        } catch (Exception ignored) {
+            /* optional */
+        }
+        String uri = echo != null ? echo.getString("uri", "") : "";
+        if (!ok || uri == null || uri.isEmpty()) {
+            String err = echo != null ? echo.getString("error", "not a file") : "not a file";
+            return fail("storage:share", err != null && !err.isEmpty() ? err : "not a file");
+        }
+        String name = echo.getString("name", "file");
+        String mime = mimeType.trim().isEmpty() ? echo.getString("mime", "") : mimeType.trim();
+        if (mime == null || mime.isEmpty()) mime = guessMime(name);
+        Context ctx = plugin.getContext();
+        if (ctx == null) return fail("storage:share", "no context");
+        return LauncherCoordinator.sendToPackage(ctx, uri, name, mime, "", true, title);
+    }
+
+    /**
+     * WHY: Android WebView {@code navigator.clipboard.write(ClipboardItem)} does not
+     * put a bitmap on the system clipboard. Use FileProvider/SAF URI + ClipData.
+     */
+    JSObject copyImage(JSObject payload) {
+        Context ctx = plugin.getContext();
+        if (ctx == null) return fail("storage:copy-image", "no context");
+        String root = payload != null ? payload.getString("root", "") : "";
+        String path = payload != null ? payload.getString("path", "") : "";
+        if (root != null && !root.trim().isEmpty() && path != null && !path.trim().isEmpty()) {
+            JSObject resolved = uri(payload);
+            boolean ok = false;
+            try {
+                ok = resolved.getBoolean("ok", false);
+            } catch (Exception ignored) {
+                /* Capacitor JSObject */
+            }
+            JSObject echo = null;
+            try {
+                echo = resolved.getJSObject("echo");
+            } catch (Exception ignored) {
+                /* optional */
+            }
+            String uri = echo != null ? echo.getString("uri", "") : "";
+            if (ok && uri != null && !uri.isEmpty()) {
+                String name = echo.getString("name", "image");
+                String mime = echo.getString("mime", "");
+                if (mime == null || mime.isEmpty()) mime = guessMime(name);
+                if (mime == null || !mime.startsWith("image/")) mime = "image/*";
+                return setClipboardImageUri(ctx, uri, mime, name);
+            }
+        }
+        String data = payload != null ? payload.getString("data", "") : "";
+        if (data == null || data.isEmpty()) {
+            data = payload != null ? payload.getString("dataUrl", "") : "";
+        }
+        if (data == null || data.trim().isEmpty()) {
+            return fail("storage:copy-image", "no image");
+        }
+        String mime = payload != null ? payload.getString("mimeType", "") : "";
+        if (mime == null || mime.isEmpty()) {
+            mime = payload != null ? payload.getString("mime", "") : "";
+        }
+        if (mime == null || mime.isEmpty()) mime = "image/png";
+        String name = payload != null ? payload.getString("name", "image.png") : "image.png";
+        try {
+            String raw = data.trim();
+            int comma = raw.indexOf(',');
+            if (raw.regionMatches(true, 0, "data:", 0, 5) && comma > 0) {
+                raw = raw.substring(comma + 1);
+            }
+            byte[] bytes = Base64.decode(raw.replaceAll("\\s+", ""), Base64.DEFAULT);
+            if (bytes == null || bytes.length == 0) return fail("storage:copy-image", "decode");
+            File file = writeClipPng(ctx, bytes, mime, name);
+            if (file == null) return fail("storage:copy-image", "write");
+            Uri uri = FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".fileprovider", file);
+            return setClipboardImageUri(ctx, uri.toString(), "image/png", file.getName());
+        } catch (Exception e) {
+            Log.w(TAG, "copyImage failed", e);
+            return fail("storage:copy-image", String.valueOf(e.getMessage()));
+        }
+    }
+
+    private static JSObject setClipboardImageUri(Context ctx, String rawUri, String mime, String label) {
+        try {
+            Uri parsed = Uri.parse(rawUri);
+            ClipboardManager cm = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm == null) return fail("storage:copy-image", "no clipboard");
+            String type = mime != null && !mime.isEmpty() ? mime : "image/*";
+            String[] mimes = type.startsWith("image/")
+                    ? new String[] { type, "image/*" }
+                    : new String[] { "image/*", type };
+            ClipData clip = new ClipData(new ClipDescription(label != null ? label : "image", mimes),
+                    new ClipData.Item(parsed));
+            cm.setPrimaryClip(clip);
+            JSObject r = base(true, "storage:copy-image");
+            JSObject echo = new JSObject();
+            echo.put("copied", true);
+            echo.put("uri", rawUri);
+            echo.put("mime", type);
+            r.put("echo", echo);
+            return r;
+        } catch (Exception e) {
+            Log.w(TAG, "setClipboardImageUri failed", e);
+            return fail("storage:copy-image", String.valueOf(e.getMessage()));
+        }
+    }
+
+    private static File writeClipPng(Context ctx, byte[] bytes, String mime, String name) {
+        File dir = new File(ctx.getCacheDir(), "cwsp-clip");
+        if (!dir.isDirectory() && !dir.mkdirs()) return null;
+        byte[] out = bytes;
+        String ext = ".png";
+        if (mime == null || !mime.equals("image/png")) {
+            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            if (bmp != null) {
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                boolean ok = bmp.compress(Bitmap.CompressFormat.PNG, 100, bos);
+                bmp.recycle();
+                if (ok) out = bos.toByteArray();
+            } else {
+                ext = extFromName(name);
+            }
+        }
+        File file = new File(dir, "clip-" + System.currentTimeMillis() + ext);
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            fos.write(out);
+            return file;
+        } catch (Exception e) {
+            Log.w(TAG, "writeClipPng failed", e);
+            return null;
+        }
+    }
+
+    private static String extFromName(String name) {
+        if (name == null) return ".bin";
+        int i = name.lastIndexOf('.');
+        if (i < 0) return ".bin";
+        String ext = name.substring(i).toLowerCase();
+        if (ext.length() > 8) return ".bin";
+        return ext;
+    }
+
+    /** Absolute filesystem path or SAF content:// — for “Copy real path”. */
+    JSObject realPath(JSObject payload) {
+        String root = payload != null ? payload.getString("root", "sdcard") : "sdcard";
+        String path = payload != null ? payload.getString("path", "/") : "/";
+        JSObject r = base(true, "storage:realpath");
+        JSObject echo = new JSObject();
+        echo.put("root", root);
+        if ("saf".equals(root)) {
+            JSObject uri = uriSaf(path);
+            JSObject uriEcho = null;
+            try {
+                uriEcho = uri.getJSObject("echo");
+            } catch (Exception ignored) {
+                /* optional */
+            }
+            String content = uriEcho != null ? uriEcho.getString("uri", "") : "";
+            if (content == null || content.isEmpty()) {
+                echo.put("error", "not found");
+                r.put("ok", false);
+                r.put("echo", echo);
+                return r;
+            }
+            echo.put("path", content);
+            echo.put("uri", content);
+            r.put("echo", echo);
+            return r;
+        }
+        File base = Environment.getExternalStorageDirectory();
+        File file = base != null ? resolveUnder(base, path) : null;
+        if (file == null || !file.exists()) {
+            echo.put("error", "not found");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
+        echo.put("path", file.getAbsolutePath());
+        r.put("echo", echo);
+        return r;
+    }
+
     JSObject open(JSObject payload) {
         String packageName = payload != null ? payload.getString("packageName", "") : "";
         if (packageName == null) packageName = "";
