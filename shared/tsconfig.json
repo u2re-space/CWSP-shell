@@ -2,9 +2,8 @@
     "include": [
         "./fest/**/*.ts",
         "./test/**/*.ts",
-        "../src/shared/**/*.ts",
-        "../../modules/projects/**/*.ts"
-, "../../../modules/projects/lur.e/src/utils/opfs/file-utils.ts", "../../../modules/projects/lur.e/src/utils/opfs/FileHandling.ts", "../../../modules/projects/lur.e/src/utils/opfs/FileOps.ts", "../src/shared/store/FileSystem.ts", "../../../modules/projects/lur.e/src/utils/opfs/FsWatch.ts", "../../../modules/projects/lur.e/src/utils/opfs/index.ts", "../../../modules/projects/lur.e/src/utils/extended/OPFS.uniform.worker.ts", "../../../modules/projects/lur.e/src/utils/opfs/OPFSMod.ts", "../../../modules/projects/lur.e/src/utils/opfs/WriteFileSmart-v2.ts", "../../../modules/projects/fl.ui/src/ui/misc/Time.ts", "../../../modules/projects/fl.ui/src/AI-slop/items/index.ts", "../../../modules/projects/fl.ui/src/ui/misc/Utils.ts"    ],
+        "../src/shared/**/*.ts"
+    ],
     "exclude": [
         "node_modules/**",
         "dist/**",
@@ -18,6 +17,7 @@
         "src/**/*.jsx"
     ],
     "compilerOptions": {
+        "rootDir": "..",
         "outDir": "./dist/",
         "paths": {
             "@phosphor-icons/core/assets/*": [
