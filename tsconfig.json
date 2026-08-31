@@ -103,6 +103,15 @@
             "@fest-lib/image": [
                 "../../modules/projects/image.ts/src/index.ts"
             ],
+            "@fest-lib/veela/scss/core": [
+                "../../modules/projects/veela.css/src/scss/core/index.scss"
+            ],
+            "@fest-lib/veela/scss": [
+                "../../modules/projects/veela.css/src/scss/index.scss"
+            ],
+            "@fest-lib/veela/scss/*": [
+                "../../modules/projects/veela.css/src/scss/*"
+            ],
             "@fest-lib/veela/*": [
                 "../../modules/projects/veela.css/src/*"
             ],
@@ -123,6 +132,9 @@
             ],
             "com/core/*": [
                 "../../modules/projects/subsystem/src/routing/channel/*"
+            ],
+            "com/service/AI-ops/service/RecognizeData2": [
+                "./src/shared/service/service/RecognizeData.ts"
             ],
             "com/service/*": [
                 "./src/shared/service/*"

@@ -471,13 +471,17 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
             { find: "@phosphor-icons/core", replacement: phosphorCoreRoot },
             /* Dev server: ensure this id always resolves (tsconfig path is relative to app root; some setups mis-resolve). */
             { find: "@fest-lib/veela/runtime", replacement: veelaVariantRuntimeTs },
-            /* WHY: preserveSymlinks + app-tree copies break relative veela.css; keep ?inline. */
-            { find: /^@fest-lib\/veela\/scss\/(.*)$/, replacement: `${resolve(workspaceRoot, "modules/projects/veela.css/src/scss")}/$1` },
             /* WHY: barrel @fest-lib/lure re-export collided on pickMarkdownFile (Rolldown). */
             { find: /^@fest-lib\/lure\/markdown-assets$/, replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/markdown-assets.ts") },
             /* Rolldown: bare tsconfig alias loses `?inline` imports on this key (viewer-view Markdown typography). */
             { find: /^markdown-view-typography(.*)$/, replacement: `${markdownTypographyScss}$1` },
             ...importFromTSConfig(tsconfig, __dirname),
+            /* WHY: last — tsconfig `@fest-lib/veela/*` maps `scss/core` to a directory; `?inline` needs the file. */
+            { find: /^@fest-lib\/veela\/scss\/core$/, replacement: resolve(workspaceRoot, "modules/projects/veela.css/src/scss/core/index.scss") },
+            { find: /^@fest-lib\/veela\/scss\/basic$/, replacement: resolve(workspaceRoot, "modules/projects/veela.css/src/scss/basic/index.scss") },
+            { find: /^@fest-lib\/veela\/scss\/ui$/, replacement: resolve(workspaceRoot, "modules/projects/veela.css/src/scss/ui/index.scss") },
+            { find: /^@fest-lib\/veela\/scss$/, replacement: resolve(workspaceRoot, "modules/projects/veela.css/src/scss/index.scss") },
+            { find: /^@fest-lib\/veela\/scss\/(.*)$/, replacement: `${resolve(workspaceRoot, "modules/projects/veela.css/src/scss")}/$1` },
         ],
     };
 
