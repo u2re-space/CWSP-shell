@@ -183,9 +183,28 @@ public class CwsLauncherBridgePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void processApi(PluginCall call) {
+        JSObject body = call.getObject("payload", null);
+        if (body == null) body = call.getData();
+        if (body == null) body = new JSObject();
+        final JSObject payload = body;
+        new Thread(() -> {
+            try {
+                call.resolve(CwsProcessApi.run(payload));
+            } catch (Exception e) {
+                call.resolve(CwsProcessApi.error(e.getMessage()));
+            }
+        }, "cwsp-process-api").start();
+    }
+
+    @PluginMethod
     public void invoke(PluginCall call) {
         String channel = call.getString("channel", "");
         JSObject payload = call.getObject("payload", new JSObject());
+        if (CwsProcessApi.CHANNEL.equals(channel) || "process.api".equals(channel)) {
+            processApi(call);
+            return;
+        }
         if ("widget:bind".equals(channel)) {
             if (widgetHost == null) widgetHost = new CwsWidgetHost(this);
             String provider = payload != null ? payload.getString("provider", "") : "";
