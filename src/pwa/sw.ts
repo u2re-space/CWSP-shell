@@ -703,12 +703,14 @@ const isViteDevServiceWorker = import.meta.env.DEV;
 // @ts-ignore
 const manifest = self.__WB_MANIFEST;
 cleanupOutdatedCaches();
-/** Unhashed Vite barrels — export letters (`Un` = preload) change per build; filename does not. */
+/** Unhashed Vite barrels — export letters (`Un` = preload, `r` = __exportAll) change per build; filename does not. */
 const isUnhashedSharedBarrel = (url: string): boolean =>
     /(?:^|\/)com\/(?:app|service)\.js(?:$|\?)/i.test(url) ||
     /(?:^|\/)fest\/[\w.-]+\.js(?:$|\?)/i.test(url) ||
     /(?:^|\/)shells\/boot-index\.js(?:$|\?)/i.test(url) ||
-    /(?:^|\/)chunks\/src\d*\.js(?:$|\?)/i.test(url);
+    /(?:^|\/)chunks\/src\d*\.js(?:$|\?)/i.test(url) ||
+    // WHY: stale `rolldown-runtime.js` binds `r` to `__require` → `Calling require for "[object Object]"`.
+    /(?:^|\/)chunks\/rolldown-runtime\.js(?:$|\?)/i.test(url);
 
 if (manifest && !isViteDevServiceWorker) {
     const filteredManifest = manifest.filter((entry: any) => {

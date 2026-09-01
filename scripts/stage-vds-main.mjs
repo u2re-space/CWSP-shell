@@ -131,6 +131,27 @@ if (!fs.existsSync(iconPng)) {
     console.log("[stage-vds-main] OK pwa/icons/icon.png");
 }
 
+// INVARIANT: SKU src/pwa/icons wins over Vite-nested leftovers (old shared cross).
+{
+    const srcIcons = path.join(root, "src", "pwa", "icons");
+    const destIcons = path.join(dest, "pwa", "icons");
+    if (fs.existsSync(srcIcons)) {
+        fs.mkdirSync(destIcons, { recursive: true });
+        fs.cpSync(srcIcons, destIcons, { recursive: true });
+    }
+    const srcManifest = path.join(root, "src", "pwa", "manifest.json");
+    const destManifest = path.join(dest, "pwa", "manifest.json");
+    if (fs.existsSync(srcManifest)) {
+        fs.mkdirSync(path.dirname(destManifest), { recursive: true });
+        fs.cpSync(srcManifest, destManifest);
+    }
+    const destAlias = path.join(dest, "icons");
+    if (fs.existsSync(destIcons)) {
+        fs.mkdirSync(destAlias, { recursive: true });
+        fs.cpSync(destIcons, destAlias, { recursive: true });
+    }
+}
+
 // WHY: browsers request /favicon.png|/favicon.svg|/favicon.ico at host root.
 // Prefer the SKU PWA icon — repo assets/favicon.png is the old shared mark.
 {

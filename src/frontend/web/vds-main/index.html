@@ -22,7 +22,7 @@
         (function () {
             var KEY = "cw-shell-preload-bust";
             function stale(msg) {
-                return /export named ['"]In['"]|__vitePreload|catch is not a function/i.test(String(msg || ""));
+                return /export named ['"]In['"]|__vitePreload|catch is not a function|Calling `require` for/i.test(String(msg || ""));
             }
             function bust() {
                 if (sessionStorage.getItem(KEY)) return;

@@ -1,7 +1,7 @@
 {
-    "name": "cw.u2re.space",
-    "short_name": "CW-i1",
-    "description": "AI-and-control-toolset",
+    "name": "CWSP-shell",
+    "short_name": "Shell",
+    "description": "CWSP-shell environment (u2re.space)",
     "start_url": "../",
     "scope": "../",
     "display": "fullscreen",
