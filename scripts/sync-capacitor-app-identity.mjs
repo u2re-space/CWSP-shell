@@ -2,7 +2,7 @@
  * Filename: sync-capacitor-app-identity.mjs
  * FullPath: apps/CWSP-shell/scripts/sync-capacitor-app-identity.mjs
  * Change date and time: 05.40.00_20.08.2026
- * Reason for changes: Capacitor SKU identity follows src/pwa/manifest.json (PWA parity).
+ * Reason for changes: Display names (CWSP-shell) keep capacitor.config.json appId.
  */
 
 import fs from "node:fs";
@@ -12,27 +12,59 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MANIFEST = path.join(APP_ROOT, "src/pwa/manifest.json");
 
-/** `cw.u2re.space` → `space.u2re.cw` (Android / Capacitor applicationId). */
-export function manifestNameToAppId(name) {
-    const parts = String(name || "")
+const CAPACITOR_CONFIG = path.join(
+    APP_ROOT,
+    "src/frontend/web/capacitor-launcher/capacitor.config.json"
+);
+
+const dottedParts = (value) => {
+    const parts = String(value || "")
         .trim()
         .split(".")
         .filter(Boolean);
-    if (parts.length < 2) {
+    if (parts.length < 2) return null;
+    if (!parts.every((part) => /^[A-Za-z][A-Za-z0-9-]*$/.test(part))) return null;
+    return parts;
+};
+
+/** `cw.u2re.space` → `space.u2re.cw` (Android / Capacitor applicationId). */
+export function manifestNameToAppId(name) {
+    const parts = dottedParts(name);
+    if (!parts) {
         throw new Error(`manifest.name must be a dotted id (got ${JSON.stringify(name)})`);
     }
     return parts.reverse().join(".");
 }
 
+function loadExistingCapacitorIdentity() {
+    if (!fs.existsSync(CAPACITOR_CONFIG)) return { appId: "", appName: "" };
+    const cfg = JSON.parse(fs.readFileSync(CAPACITOR_CONFIG, "utf8"));
+    return {
+        appId: String(cfg.appId || "").trim(),
+        appName: String(cfg.appName || "").trim()
+    };
+}
+
 export function loadPwaIdentity(manifestPath = MANIFEST) {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
     const appTitle = String(manifest.name || "").trim();
-    const appName = String(manifest.short_name || appTitle).trim();
-    if (!appTitle || !appName) {
-        throw new Error("manifest.json must define name and short_name");
+    const shortName = String(manifest.short_name || "").trim();
+    if (!appTitle) {
+        throw new Error("manifest.json must define name");
+    }
+    const existing = loadExistingCapacitorIdentity();
+    const host = dottedParts(appTitle);
+    // WHY: PWA name is now a display label (CWSP-shell), not cw.u2re.space.
+    // Keep the installed applicationId / CW-i1 stem from capacitor.config.json.
+    const appId = host ? host.slice().reverse().join(".") : existing.appId;
+    const appName = host ? (shortName || appTitle) : (existing.appName || shortName || appTitle);
+    if (!appId || !dottedParts(appId)) {
+        throw new Error(
+            `Need a dotted appId (manifest.name like cw.u2re.space, or capacitor.config.json appId); got name=${JSON.stringify(appTitle)} appId=${JSON.stringify(appId)}`
+        );
     }
     return {
-        appId: manifestNameToAppId(appTitle),
+        appId,
         appName,
         appTitle,
         themeColor: String(manifest.theme_color || "#000000").trim()
