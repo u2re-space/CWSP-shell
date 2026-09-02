@@ -838,6 +838,8 @@ public class MainActivity extends BridgeActivity {
             if (bridge == null) return;
             /* WHY: metadata ping only — file bytes go through launcher:pending-share. */
             JSObject slim = new JSObject();
+            slim.put("type", "share-received");
+            slim.put("source", "share-target");
             slim.put("pending", true);
             if (share != null) {
                 try {

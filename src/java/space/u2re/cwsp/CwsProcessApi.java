@@ -120,6 +120,7 @@ public final class CwsProcessApi {
             result.put("text", text);
             JSObject out = new JSObject();
             out.put("ok", true);
+            out.put("type", "process-api-result");
             out.put("mode", pick(body, "mode").isEmpty() ? "smartRecognize" : pick(body, "mode"));
             out.put("customInstruction", !instruction.isEmpty());
             JSObject providerInfo = new JSObject();
