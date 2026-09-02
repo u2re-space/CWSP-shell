@@ -85,6 +85,15 @@
             "@fest-lib/lure/markdown-assets": [
                 "../../modules/projects/lur.e/src/utils/opfs/markdown-assets.ts"
             ],
+            "@fest-lib/lure/provide": [
+                "../../modules/projects/lur.e/src/utils/opfs/provide.ts"
+            ],
+            "@fest-lib/lure/idb-fs": [
+                "../../modules/projects/lur.e/src/utils/opfs/IdbFs.ts"
+            ],
+            "@fest-lib/lure/remote-fs": [
+                "../../modules/projects/lur.e/src/utils/opfs/remote-fs.ts"
+            ],
             "@fest-lib/object": [
                 "../../modules/projects/object.ts/src/index.ts"
             ],

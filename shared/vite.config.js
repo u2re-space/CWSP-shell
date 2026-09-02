@@ -10,6 +10,7 @@ import {
     rewriteVitePreloadPlugin,
 } from "./vite-chunk-placement.mjs";
 import { applyFestLibraryMode } from "../../../modules/shared/fest-web-libs.mjs";
+import { mountedFsVitePlugin } from "../../../runtime/fastify/plugins/mounted-fs.ts";
 
 //
 import https from "../private/https/certificate.mjs";
@@ -473,6 +474,11 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
             { find: "@fest-lib/veela/runtime", replacement: veelaVariantRuntimeTs },
             /* WHY: barrel @fest-lib/lure re-export collided on pickMarkdownFile (Rolldown). */
             { find: /^@fest-lib\/lure\/markdown-assets$/, replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/markdown-assets.ts") },
+            /* WHY: fl.ui/node_modules/@fest-lib/lure is 0.1.34 — no ./provide ./idb-fs ./remote-fs. */
+            { find: /^@fest-lib\/lure\/provide$/, replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/provide.ts") },
+            { find: /^@fest-lib\/lure\/idb-fs$/, replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/IdbFs.ts") },
+            { find: /^@fest-lib\/lure\/remote-fs$/, replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/remote-fs.ts") },
+            { find: /^@fest-lib\/uniform\/mounted-fs$/, replacement: resolve(workspaceRoot, "modules/projects/uniform.ts/src/newer/messaging/MountedFs.ts") },
             /* Rolldown: bare tsconfig alias loses `?inline` imports on this key (viewer-view Markdown typography). */
             { find: /^markdown-view-typography(.*)$/, replacement: `${markdownTypographyScss}$1` },
             ...importFromTSConfig(tsconfig, __dirname),
@@ -534,6 +540,7 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
         return Number.isFinite(n) && n > 0 && n < 65536 ? Math.floor(n) : 443;
     })();
     const plugins = [
+        mountedFsVitePlugin(workspaceRoot),
         evictStaleKatexDepChunksPlugin(),
         servePwaSrcAsDistPlugin(__dirname),
         // SPA fallback for PWA routes (share-target, etc.)
@@ -607,6 +614,24 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
                         if (isIgnorableRollupWarning(warning)) return;
                         defaultHandler(warning);
                     },
+                    plugins: [{
+                        name: "cwsp-sw-fest-subpaths",
+                        resolveId(id) {
+                            if (id === "@fest-lib/uniform/mounted-fs") {
+                                return resolve(workspaceRoot, "modules/projects/core.ts/src/utils/MountedFs.ts");
+                            }
+                            if (id === "@fest-lib/lure/provide") {
+                                return resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/provide.ts");
+                            }
+                            if (id === "@fest-lib/lure/idb-fs") {
+                                return resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/IdbFs.ts");
+                            }
+                            if (id === "@fest-lib/lure/remote-fs") {
+                                return resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/remote-fs.ts");
+                            }
+                            return null;
+                        }
+                    }]
                 },
             },
             includeAssets: [
