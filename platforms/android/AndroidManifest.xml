@@ -13,7 +13,20 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
-    <!-- WHY: all-files / SAF moved to space.u2re.explorer — launcher is HOME + pins only. -->
+    <!-- WHY: Speed Dial / Explorer open `/sdcard/` into QuickEdit and siblings — FileProvider
+         cannot serve those files unless this APK is the external-storage manager. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
     <!-- WHY: in-app sideload of fleet/dev launcher APK from gateway /releases/android. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- WHY: PackageInstaller.uninstall() for App Menu — still shows the system confirm sheet. -->

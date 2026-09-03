@@ -399,6 +399,7 @@ public final class CwsStorageHost {
         String uri = echo != null ? echo.getString("uri", "") : "";
         if (!ok || uri == null || uri.isEmpty()) {
             String err = echo != null ? echo.getString("error", "not a file") : "not a file";
+            if ("all-files-required".equals(err)) requestAllFiles();
             return fail("storage:open", err != null && !err.isEmpty() ? err : "not a file");
         }
         String name = echo.getString("name", "file");
@@ -406,6 +407,10 @@ public final class CwsStorageHost {
         if (mime == null || mime.isEmpty()) mime = guessMime(name);
         Context ctx = plugin.getContext();
         if (ctx == null) return fail("storage:open", "no context");
+        /* WHY: file:// is blocked for QuickEdit / editors on API 24+. Need FileProvider. */
+        if (uri.regionMatches(true, 0, "file:", 0, 5)) {
+            return fail("storage:open", "fileprovider-required");
+        }
         if (!packageName.isEmpty()) {
             JSObject sent = LauncherCoordinator.sendToPackage(
                     ctx, uri, name, mime, packageName, false, title);
@@ -416,13 +421,16 @@ public final class CwsStorageHost {
                 /* fall through */
             }
             if (sentOk) return sent;
-            /* WHY: setPackage can miss OEM filters — chooser still lists Document. */
-            return LauncherCoordinator.openUri(ctx, uri, "", true, title, mime);
+            /* WHY: setPackage can miss OEM filters — VIEW chooser lists QuickEdit + Document. */
+            return LauncherCoordinator.openUri(
+                    ctx, uri, "", true, title, LauncherCoordinator.systemOpenMime(name, mime));
         }
         if (chooser) {
-            return LauncherCoordinator.openUri(ctx, uri, "", true, title, mime);
+            return LauncherCoordinator.openUri(
+                    ctx, uri, "", true, title, LauncherCoordinator.systemOpenMime(name, mime));
         }
-        return LauncherCoordinator.sendToPackage(ctx, uri, name, mime, "", false, title);
+        return LauncherCoordinator.openUri(
+                ctx, uri, "", true, title, LauncherCoordinator.systemOpenMime(name, mime));
     }
 
     JSObject allFilesStatus() {
@@ -517,11 +525,63 @@ public final class CwsStorageHost {
     }
 
     private static final long MAX_READ_BYTES = 16L * 1024 * 1024;
+    private static final long MAX_SHARE_COPY = 32L * 1024 * 1024;
+
+    /**
+     * Copy into app cache so FileProvider serves a file this APK owns.
+     * External-path URIs often come back as Permission Denied in QuickEdit
+     * when the launcher is not the storage manager.
+     */
+    private static File copyIntoShareCache(Context ctx, File file) {
+        if (ctx == null || file == null || !file.isFile()) return null;
+        File dir = new File(ctx.getCacheDir(), "files");
+        if (!dir.isDirectory() && !dir.mkdirs()) return null;
+        String raw = file.getName();
+        if (raw == null || raw.isEmpty()) raw = "file";
+        String safe = raw.replaceAll("[^a-zA-Z0-9._-]", "_");
+        File dest = new File(dir, "open-" + System.currentTimeMillis() + "-" + safe);
+        try (FileInputStream in = new FileInputStream(file);
+                FileOutputStream out = new FileOutputStream(dest)) {
+            byte[] buf = new byte[16 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            out.flush();
+            return dest;
+        } catch (Exception e) {
+            Log.w(TAG, "copyIntoShareCache failed", e);
+            if (dest.exists()) {
+                //noinspection ResultOfMethodCallIgnored
+                dest.delete();
+            }
+            return null;
+        }
+    }
+
+    private static Uri shareableFileUri(Context ctx, File file) {
+        if (ctx == null || file == null || !file.isFile()) return null;
+        File dest = file;
+        if (file.length() > 0 && file.length() <= MAX_SHARE_COPY) {
+            File copied = copyIntoShareCache(ctx, file);
+            if (copied != null) dest = copied;
+        }
+        try {
+            return FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".fileprovider", dest);
+        } catch (Exception e) {
+            Log.w(TAG, "shareable FileProvider failed", e);
+            return null;
+        }
+    }
 
     private JSObject uriSdcard(String path) {
         JSObject r = base(true, "storage:uri");
         JSObject echo = new JSObject();
         echo.put("root", "sdcard");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !isAllFilesGranted()) {
+            echo.put("error", "all-files-required");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
         File base = Environment.getExternalStorageDirectory();
         File file = base != null ? resolveUnder(base, path) : null;
         if (file == null || !file.isFile()) {
@@ -533,13 +593,14 @@ public final class CwsStorageHost {
         Context ctx = plugin.getContext();
         String uri = "";
         if (ctx != null) {
-            try {
-                uri = FileProvider.getUriForFile(
-                                ctx, ctx.getPackageName() + ".fileprovider", file)
-                        .toString();
-            } catch (Exception e) {
-                uri = Uri.fromFile(file).toString();
-            }
+            Uri share = shareableFileUri(ctx, file);
+            if (share != null) uri = share.toString();
+        }
+        if (uri == null || uri.isEmpty()) {
+            echo.put("error", "fileprovider-failed");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
         }
         echo.put("uri", uri);
         echo.put("name", file.getName());

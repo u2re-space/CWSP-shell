@@ -1556,6 +1556,10 @@ public final class LauncherCoordinator {
         try {
             Intent view;
             String resolvedMime = mimeType != null ? mimeType.trim() : "";
+            /* WHY: QuickEdit / most editors match VIEW+text/plain, not SEND+text/markdown. */
+            if (chooser) {
+                resolvedMime = systemOpenMime(uri, resolvedMime);
+            }
             if (uri.regionMatches(true, 0, "intent:", 0, 7)) {
                 view = Intent.parseUri(uri, Intent.URI_INTENT_SCHEME);
                 if (view == null) {
@@ -1672,12 +1676,30 @@ public final class LauncherCoordinator {
                         chooserTitle != null && !chooserTitle.trim().isEmpty()
                                 ? chooserTitle.trim()
                                 : "Open with";
-                launch = Intent.createChooser(view, title);
+                android.net.Uri data = view.getData();
+                if (documentUri && data != null) {
+                    grantUriToMatchers(ctx, view, data);
+                    Intent edit = new Intent(Intent.ACTION_EDIT);
+                    edit.setDataAndType(data, view.getType());
+                    edit.addFlags(
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    grantUriToMatchers(ctx, edit, data);
+                    launch = Intent.createChooser(view, title);
+                    launch.putExtra(Intent.EXTRA_INITIAL_INTENTS, new android.os.Parcelable[] {edit});
+                } else {
+                    launch = Intent.createChooser(view, title);
+                }
                 launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 if (documentUri) {
                     launch.addFlags(
                             Intent.FLAG_GRANT_READ_URI_PERMISSION
                                     | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    try {
+                        if (view.getClipData() != null) launch.setClipData(view.getClipData());
+                    } catch (Exception ignored) {
+                        /* OEM chooser */
+                    }
                 }
             }
             ctx.startActivity(launch);
@@ -1786,6 +1808,7 @@ public final class LauncherCoordinator {
         if (mime.isEmpty()) mime = "application/octet-stream";
         Intent send = new Intent(Intent.ACTION_SEND);
         send.setType(mime);
+        send.setDataAndType(parsed, mime);
         send.putExtra(Intent.EXTRA_STREAM, parsed);
         if (name != null && !name.trim().isEmpty()) {
             send.putExtra(Intent.EXTRA_TITLE, name.trim());
@@ -1863,6 +1886,71 @@ public final class LauncherCoordinator {
         if (n.isEmpty() || ".".equals(n) || "..".equals(n)) n = "shared.bin";
         if (n.length() > 120) n = n.substring(n.length() - 120);
         return n;
+    }
+
+    /**
+     * VIEW/EDIT MIME for the system sheet. Editors like QuickEdit register
+     * {@code text/plain}, not {@code text/markdown} / {@code ACTION_SEND}.
+     */
+    public static String systemOpenMime(String nameOrUri, String declared) {
+        String mime = declared != null ? declared.trim() : "";
+        String n = nameOrUri != null ? nameOrUri.toLowerCase(java.util.Locale.US) : "";
+        boolean markdown =
+                n.contains(".md")
+                        || n.contains(".markdown")
+                        || "text/markdown".equalsIgnoreCase(mime)
+                        || "text/x-markdown".equalsIgnoreCase(mime);
+        boolean texty =
+                markdown
+                        || n.contains(".txt")
+                        || n.contains(".log")
+                        || n.contains(".csv")
+                        || n.contains(".json")
+                        || n.contains(".xml")
+                        || n.contains(".yml")
+                        || n.contains(".yaml")
+                        || n.contains(".ini")
+                        || n.contains(".conf")
+                        || n.contains(".html")
+                        || n.contains(".htm")
+                        || n.contains(".css")
+                        || n.contains(".js")
+                        || n.contains(".ts")
+                        || n.contains(".kt")
+                        || n.contains(".java")
+                        || n.contains(".py")
+                        || n.contains(".sh")
+                        || "application/json".equalsIgnoreCase(mime)
+                        || (mime.regionMatches(true, 0, "text/", 0, 5) && !"text/html".equalsIgnoreCase(mime));
+        if (texty) return "text/plain";
+        if (!mime.isEmpty() && !"*/*".equals(mime) && !"application/octet-stream".equalsIgnoreCase(mime)) {
+            return mime;
+        }
+        String guessed = guessMimeFromUri(nameOrUri);
+        if (guessed.startsWith("text/") || "application/json".equals(guessed)) return "text/plain";
+        return guessed.isEmpty() ? "text/plain" : guessed;
+    }
+
+    private static void grantUriToMatchers(Context ctx, Intent intent, android.net.Uri uri) {
+        if (ctx == null || intent == null || uri == null) return;
+        try {
+            java.util.List<android.content.pm.ResolveInfo> rows =
+                    ctx.getPackageManager().queryIntentActivities(intent, 0);
+            int flags =
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+            for (android.content.pm.ResolveInfo row : rows) {
+                if (row == null || row.activityInfo == null) continue;
+                String pkg = row.activityInfo.packageName;
+                if (pkg == null || pkg.isEmpty()) continue;
+                try {
+                    ctx.grantUriPermission(pkg, uri, flags);
+                } catch (Exception ignored) {
+                    /* skip one target */
+                }
+            }
+        } catch (Exception ignored) {
+            /* query optional */
+        }
     }
 
     private static String guessMimeFromUri(String uri) {
