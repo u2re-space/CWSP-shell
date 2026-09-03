@@ -38,7 +38,11 @@ public class ProcessShareActivity extends Activity {
         /* WHY: attach must open Work Center chips. FGS would flash "Processing…" and may run AI. */
         if (!ProcessIngressSnapshot.isProcessMode(this, kind)) {
             Intent main = new Intent(this, MainActivity.class);
-            main.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            main.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                            | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             main.putExtra(MainActivity.EXTRA_CONSUME_PENDING_SHARE, true);
             startActivity(main);
             finish();
@@ -54,7 +58,11 @@ public class ProcessShareActivity extends Activity {
         } catch (Exception e) {
             Log.w(TAG, "start ProcessIngressService failed — opening MainActivity", e);
             Intent main = new Intent(this, MainActivity.class);
-            main.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            main.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                            | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             main.putExtra(MainActivity.EXTRA_CONSUME_PENDING_SHARE, true);
             startActivity(main);
         }

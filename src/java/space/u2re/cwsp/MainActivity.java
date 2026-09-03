@@ -893,6 +893,10 @@ public class MainActivity extends BridgeActivity {
                 }
             }
             bridge.triggerWindowJSEvent("cws:shareIntent", slim.toString());
+            /* WHY: Capacitor window events can drop while the WebView is paused under ProcessShareActivity. */
+            bridge.eval(
+                    "(function(){try{window.dispatchEvent(new CustomEvent(\"cws:shareIntent\",{detail:{pending:true}}));return\"1\"}catch(e){return\"0\"}})()",
+                    value -> {});
             shareNotifyPending = false;
         } catch (Exception e) {
             shareNotifyPending = true;
