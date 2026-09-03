@@ -40,7 +40,9 @@ import java.util.regex.Pattern;
  */
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "CwspLauncherMain";
+    static final String EXTRA_CONSUME_PENDING_SHARE = "cwsp_consume_pending_share";
     private static final String ACTION_INSTALL_SHORTCUT = "com.android.launcher.action.INSTALL_SHORTCUT";
+    private boolean shareNotifyPending = false;
     private static final Pattern URL_IN_TEXT =
             Pattern.compile("(https?://[^\\s<>\"']+|www\\.[^\\s<>\"']+)", Pattern.CASE_INSENSITIVE);
 
@@ -104,6 +106,17 @@ public class MainActivity extends BridgeActivity {
             }
         } catch (Exception e) {
             Log.w(TAG, "refresh unlock onResume failed", e);
+        }
+        JSObject pendingShare = LauncherCoordinator.peekPendingShare(this);
+        if (shareNotifyPending && pendingShare != null) {
+            notifyShareIntent(pendingShare);
+        } else if (pendingShare != null) {
+            /* WHY: attach Open-with while already resumed can miss cws:shareIntent.
+             * Process-mode stash belongs to ProcessIngressService — do not ack it from JS. */
+            String kind = ProcessIngressSnapshot.classifyKind(pendingShare);
+            if (!ProcessIngressSnapshot.isProcessMode(this, kind)) {
+                notifyShareIntent(pendingShare);
+            }
         }
     }
 
@@ -181,6 +194,12 @@ public class MainActivity extends BridgeActivity {
     private void handleIncomingIntent(Intent intent) {
         if (intent == null) return;
         Log.i(TAG, "incoming action=" + intent.getAction());
+        /* WHY: ProcessShareActivity stashes then opens MainActivity without SEND extras.
+         * Warm start would never fire cws:shareIntent unless we peek the stash here. */
+        if (intent.getBooleanExtra(EXTRA_CONSUME_PENDING_SHARE, false)) {
+            JSObject pending = LauncherCoordinator.peekPendingShare(this);
+            if (pending != null) notifyShareIntent(pending);
+        }
 
         if (tryHandlePinShortcutRequest(intent)) {
             clearTransientIntent(intent);
@@ -206,12 +225,16 @@ public class MainActivity extends BridgeActivity {
         JSObject pin = extractPinFromIntent(intent);
         JSObject share = extractShareFromIntent(intent);
         boolean shareHasLocalUri = shareHasLocalUri(share);
-        if (share != null && (shareHasLocalUri || pin == null)) {
+        /*
+         * WHY: Process/Document/Explorer must ingest URL SEND/VIEW as share, not a
+         * launcher pin. Only the HOME SKU keeps the pin path.
+         */
+        if (share != null && (shareHasLocalUri || pin == null || !BuildConfig.CWSP_LAUNCHER_SKU)) {
             Log.i(TAG, "share-intent — pending file/text");
             LauncherCoordinator.stashPendingShare(this, share);
             notifyShareIntent(share);
         }
-        if (pin != null) {
+        if (pin != null && BuildConfig.CWSP_LAUNCHER_SKU) {
             Log.i(TAG, "pin-shortcut intent — " + pin.toString());
             LauncherCoordinator.stashPendingPin(this, pin);
             notifyLauncherPinShortcut(pin);
@@ -233,7 +256,7 @@ public class MainActivity extends BridgeActivity {
      * SEND / VIEW / PROCESS_TEXT → JS SKU pipeline. Bytes stay on disk
      * ({@link LauncherCoordinator#stashPendingShare}); the event is metadata only.
      */
-    private static JSObject extractShareFromIntent(Intent intent) {
+    static JSObject extractShareFromIntent(Intent intent) {
         if (intent == null) return null;
         String action = intent.getAction();
         if (action == null) return null;
@@ -312,7 +335,7 @@ public class MainActivity extends BridgeActivity {
                 if (name != null && !name.isEmpty()) share.put("name", name);
             }
         }
-        String mime = intent.getType();
+        String mime = guessMimeType(share.getString("name", title), intent.getType());
         if (mime != null && !mime.trim().isEmpty()) share.put("mime", mime.trim());
 
         if (!share.has("text") && !share.has("uri")) return null;
@@ -561,6 +584,16 @@ public class MainActivity extends BridgeActivity {
             if (stream instanceof Uri) return (Uri) stream;
         } catch (Exception ignored) {
             /* ignore */
+        }
+        try {
+            java.util.ArrayList<Parcelable> many = launch.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+            if (many != null) {
+                for (Parcelable item : many) {
+                    if (item instanceof Uri) return (Uri) item;
+                }
+            }
+        } catch (Exception ignored) {
+            /* SEND_MULTIPLE */
         }
         /* String extras some file managers use. */
         try {
@@ -835,7 +868,10 @@ public class MainActivity extends BridgeActivity {
     private void notifyShareIntent(JSObject share) {
         try {
             Bridge bridge = getBridge();
-            if (bridge == null) return;
+            if (bridge == null) {
+                shareNotifyPending = true;
+                return;
+            }
             /* WHY: metadata ping only — file bytes go through launcher:pending-share. */
             JSObject slim = new JSObject();
             slim.put("type", "share-received");
@@ -846,6 +882,7 @@ public class MainActivity extends BridgeActivity {
                     if (share.has("title")) slim.put("title", String.valueOf(share.get("title")));
                     if (share.has("name")) slim.put("name", String.valueOf(share.get("name")));
                     if (share.has("mime")) slim.put("mime", String.valueOf(share.get("mime")));
+                    if (share.has("stashedAt")) slim.put("stashedAt", LauncherCoordinator.readStashedAt(share));
                     if (share.has("text")) {
                         String text = String.valueOf(share.get("text"));
                         if (text.length() > 400) text = text.substring(0, 400);
@@ -856,7 +893,9 @@ public class MainActivity extends BridgeActivity {
                 }
             }
             bridge.triggerWindowJSEvent("cws:shareIntent", slim.toString());
+            shareNotifyPending = false;
         } catch (Exception e) {
+            shareNotifyPending = true;
             Log.w(TAG, "cws:shareIntent notify failed", e);
         }
     }

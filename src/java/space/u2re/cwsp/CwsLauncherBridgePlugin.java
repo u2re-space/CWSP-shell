@@ -31,8 +31,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Minimal {@code CwsBridge} for CWSP Launcher APK — {@code launcher:*} + local clipboard read
- * (Paste shortcut / Speed Dial). Full transfer CwsBridge is not shipped in this SKU.
+ * Minimal {@code CwsBridge} for Launcher / Process APKs — {@code launcher:*} + local clipboard.
+ * INVARIANT: Process share writes via {@code clipboard:write-local}; {@code @capacitor/clipboard}
+ * is not in sibling SKU gradle. Full transfer CwsBridge is not shipped here.
  */
 @CapacitorPlugin(name = "CwsBridge")
 public class CwsLauncherBridgePlugin extends Plugin {
@@ -370,8 +371,10 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 return LauncherCoordinator.consumePendingShare(getContext());
             case "launcher:read-share-file":
                 return LauncherCoordinator.readPendingShareFile(getContext());
+            case "launcher:restash-share-file":
+                return LauncherCoordinator.restashPendingShareFile(getContext());
             case "launcher:ack-share":
-                return LauncherCoordinator.ackPendingShare(getContext());
+                return LauncherCoordinator.ackPendingShare(getContext(), payload);
             case "launcher:list-pinned":
                 return LauncherCoordinator.listPinnedShortcuts(getContext());
             /* WHY: Paste shortcut uses clipboard-device → clipboard:read-local. Slim launcher
@@ -380,6 +383,11 @@ public class CwsLauncherBridgePlugin extends Plugin {
             case "clipboard:read-local":
             case "clipboard:paste-remote":
                 return clipboardRead(channel);
+            case "settings:snapshot":
+                return ProcessIngressSnapshot.save(getContext(), payload);
+            case "clipboard:write-local":
+            case "clipboard:write":
+                return clipboardWrite(channel, payload);
             case "clipboard:write-local-image":
             case "storage:copy-image": {
                 if (storageHost == null) storageHost = new CwsStorageHost(this);
@@ -487,6 +495,38 @@ public class CwsLauncherBridgePlugin extends Plugin {
         echo.put("text", text != null ? text : "");
         r.put("echo", echo);
         return r;
+    }
+
+    /**
+     * WHY: Android 10+ setPrimaryClip needs a focused window. Use the Activity,
+     * not only application context. Process AI-after-share has no @capacitor/clipboard.
+     */
+    private JSObject clipboardWrite(String channel, JSObject payload) {
+        String text = payload != null ? payload.getString("text", "") : "";
+        if (text == null) text = "";
+        boolean ok = writeClipboardPlainText(text);
+        JSObject r = baseResult(ok, channel);
+        JSObject echo = new JSObject();
+        echo.put("ok", ok);
+        echo.put("text", text);
+        if (!ok) echo.put("error", "setPrimaryClip failed");
+        r.put("echo", echo);
+        return r;
+    }
+
+    private boolean writeClipboardPlainText(String text) {
+        android.app.Activity activity = getActivity();
+        Context context = activity != null ? activity : getContext();
+        if (context == null) return false;
+        try {
+            ClipboardManager cm =
+                    (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm == null) return false;
+            cm.setPrimaryClip(ClipData.newPlainText("cwsp", text));
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     /**

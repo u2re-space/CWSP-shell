@@ -2072,20 +2072,35 @@ public final class LauncherCoordinator {
     public static void stashPendingShare(Context ctx, JSObject share) {
         if (share == null) return;
         JSObject slim = new JSObject();
-        putClipped(slim, share, "text", 4000);
+        /* WHY: PROCESS_TEXT without a stream is the document. Pin 4k clip dropped most of it. */
+        boolean hasUri = share.has("uri") || share.has("url");
+        putClipped(slim, share, "text", hasUri ? 4000 : 64 * 1024);
         putClipped(slim, share, "title", BRIDGE_LABEL_MAX);
         putClipped(slim, share, "name", 256);
         putClipped(slim, share, "mime", 128);
-        putClipped(slim, share, "url", BRIDGE_URI_MAX);
         slim.put("stashedAt", System.currentTimeMillis());
         boolean copied = false;
-        if (ctx != null && share.has("uri")) {
+        String uriRaw = firstPinString(share, "uri", "url");
+        /* WHY: MediaStore/SAF content:// is often > pin BRIDGE_URI_MAX (512). Restash needs the full URI. */
+        if (!uriRaw.isEmpty() && uriRaw.length() <= 8 * 1024) {
+            slim.put("url", uriRaw);
+            slim.put("uri", uriRaw);
+        }
+        if (ctx != null && !uriRaw.isEmpty()) {
             try {
-                android.net.Uri uri = android.net.Uri.parse(String.valueOf(share.get("uri")));
+                android.net.Uri uri = android.net.Uri.parse(uriRaw);
+                try {
+                    ctx.getContentResolver()
+                            .takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (Exception ignored) {
+                    /* grant is optional — file:// and one-shot content:// */
+                }
                 copied = copyShareUriToDisk(ctx, uri);
-                if (copied && !slim.has("url")) {
-                    String u = uri.toString();
-                    if (u != null && u.length() <= BRIDGE_URI_MAX) slim.put("url", u);
+                String display = queryShareDisplayName(ctx, uri);
+                if (!display.isEmpty()) slim.put("name", display);
+                else if (!slim.has("name")) {
+                    String seg = uri.getLastPathSegment();
+                    if (seg != null && !seg.isEmpty()) slim.put("name", android.net.Uri.decode(seg));
                 }
             } catch (Exception e) {
                 Log.w(TAG, "stashPendingShare copy failed", e);
@@ -2107,6 +2122,37 @@ public final class LauncherCoordinator {
         }
     }
 
+    private static String queryShareDisplayName(Context ctx, android.net.Uri uri) {
+        if (ctx == null || uri == null) return "";
+        android.database.Cursor cursor = null;
+        try {
+            cursor = ctx.getContentResolver().query(
+                    uri,
+                    new String[] { android.provider.OpenableColumns.DISPLAY_NAME },
+                    null,
+                    null,
+                    null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) {
+                    String name = cursor.getString(index);
+                    if (name != null && !name.trim().isEmpty()) return name.trim();
+                }
+            }
+        } catch (Exception ignored) {
+            /* display name optional */
+        } finally {
+            if (cursor != null) {
+                try {
+                    cursor.close();
+                } catch (Exception ignored) {
+                    /* ignore */
+                }
+            }
+        }
+        return "";
+    }
+
     private static boolean copyShareUriToDisk(Context ctx, android.net.Uri uri) {
         if (ctx == null || uri == null) return false;
         File dest = pendingShareFile(ctx);
@@ -2114,7 +2160,19 @@ public final class LauncherCoordinator {
         InputStream in = null;
         FileOutputStream out = null;
         try {
-            in = ctx.getContentResolver().openInputStream(uri);
+            try {
+                in = ctx.getContentResolver().openInputStream(uri);
+            } catch (Exception e) {
+                Log.w(TAG, "openInputStream failed, try file path", e);
+            }
+            /* WHY: Open-with from Notes/etc often ships file:///storage/... — resolver is null. */
+            if (in == null && "file".equalsIgnoreCase(uri.getScheme())) {
+                String path = uri.getPath();
+                if (path != null && !path.isEmpty()) {
+                    File src = new File(path);
+                    if (src.isFile() && src.canRead()) in = new FileInputStream(src);
+                }
+            }
             if (in == null) return false;
             out = new FileOutputStream(dest);
             byte[] buf = new byte[16 * 1024];
@@ -2179,23 +2237,80 @@ public final class LauncherCoordinator {
         JSObject r = base(true, "launcher:pending-share");
         JSObject echo = new JSObject();
         if (share != null) {
-            putClipped(echo, share, "text", 4000);
+            putClipped(echo, share, "text", 64 * 1024);
             putClipped(echo, share, "title", BRIDGE_LABEL_MAX);
             putClipped(echo, share, "name", 256);
             putClipped(echo, share, "mime", 128);
-            putClipped(echo, share, "url", BRIDGE_URI_MAX);
+            String url = firstPinString(share, "url", "uri");
+            if (!url.isEmpty() && url.length() <= 8 * 1024) echo.put("url", url);
             boolean hasFile = false;
             try {
-                if (share.has("hasFile")) hasFile = Boolean.TRUE.equals(share.get("hasFile"));
+                String flag = share.getString("hasFile", "");
+                hasFile = "true".equalsIgnoreCase(flag) || "1".equals(flag);
             } catch (Exception ignored) {
                 /* optional */
             }
             File disk = pendingShareFile(ctx);
             if (disk != null && disk.isFile() && disk.length() > 0) hasFile = true;
             echo.put("hasFile", hasFile);
+            long stashedAt = readStashedAt(share);
+            if (stashedAt > 0L) echo.put("stashedAt", stashedAt);
         }
         r.put("echo", echo);
         return r;
+    }
+
+    static long readStashedAt(JSObject row) {
+        if (row == null) return 0L;
+        try {
+            if (!row.has("stashedAt")) return 0L;
+            Object raw = row.get("stashedAt");
+            if (raw instanceof Number) return ((Number) raw).longValue();
+            if (raw != null) {
+                String text = String.valueOf(raw).trim();
+                if (!text.isEmpty() && !"null".equals(text)) return Long.parseLong(text);
+            }
+        } catch (Exception ignored) {
+            /* optional generation */
+        }
+        return 0L;
+    }
+
+    /** Re-copy `url`/`uri` after the user grants all-files access. */
+    public static JSObject restashPendingShareFile(Context ctx) {
+        JSObject r = base(true, "launcher:restash-share-file");
+        JSObject echo = new JSObject();
+        JSObject share = peekPendingShare(ctx);
+        boolean copied = false;
+        if (ctx != null && share != null) {
+            String raw = firstPinString(share, "url");
+            if (raw.isEmpty()) raw = firstPinString(share, "uri");
+            if (!raw.isEmpty()) {
+                try {
+                    copied = copyShareUriToDisk(ctx, android.net.Uri.parse(raw));
+                    share.put("hasFile", copied);
+                    persistPendingShare(ctx, share);
+                } catch (Exception e) {
+                    Log.w(TAG, "restashPendingShareFile failed", e);
+                }
+            }
+        }
+        echo.put("hasFile", copied);
+        r.put("echo", echo);
+        return r;
+    }
+
+    private static void persistPendingShare(Context ctx, JSObject slim) {
+        if (ctx == null || slim == null) return;
+        try {
+            ctx.getApplicationContext()
+                    .getSharedPreferences(PIN_PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(SHARE_PREFS_KEY, slim.toString())
+                    .apply();
+        } catch (Exception e) {
+            Log.w(TAG, "persistPendingShare failed", e);
+        }
     }
 
     public static JSObject readPendingShareFile(Context ctx) {
@@ -2236,7 +2351,19 @@ public final class LauncherCoordinator {
     }
 
     public static JSObject ackPendingShare(Context ctx) {
+        return ackPendingShare(ctx, null);
+    }
+
+    public static JSObject ackPendingShare(Context ctx, JSObject payload) {
+        long expect = readStashedAt(payload);
         synchronized (PENDING_SHARE_LOCK) {
+            if (expect > 0L && pendingShare != null) {
+                long have = readStashedAt(pendingShare);
+                /* INVARIANT: a newer Open-with/Share must survive a late ack of the previous stash. */
+                if (have > 0L && have != expect) {
+                    return base(true, "launcher:ack-share");
+                }
+            }
             pendingShare = null;
         }
         if (ctx != null) {

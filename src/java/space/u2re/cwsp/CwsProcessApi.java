@@ -66,15 +66,34 @@ public final class CwsProcessApi {
 
         try {
             JSONArray messages = new JSONArray();
-            if (!instruction.isEmpty()) {
+            boolean image = input.startsWith("data:image/") && input.contains(";base64,");
+            String extractNow =
+                    "Extract all readable text, equations, tables, and data. Output the content now. Do not ask what to do.";
+            if (!instruction.isEmpty() && !image) {
                 JSONObject system = new JSONObject();
                 system.put("role", "system");
                 system.put("content", instruction);
                 messages.put(system);
             }
             JSONObject user = new JSONObject();
-            user.put("role", "user");
-            user.put("content", input);
+            if (image) {
+                JSONArray parts = new JSONArray();
+                JSONObject textPart = new JSONObject();
+                textPart.put("type", "text");
+                textPart.put("text", instruction.isEmpty() ? extractNow : extractNow + "\n\n" + instruction);
+                parts.put(textPart);
+                JSONObject imagePart = new JSONObject();
+                imagePart.put("type", "image_url");
+                JSONObject imageUrl = new JSONObject();
+                imageUrl.put("url", input);
+                imagePart.put("image_url", imageUrl);
+                parts.put(imagePart);
+                user.put("role", "user");
+                user.put("content", parts);
+            } else {
+                user.put("role", "user");
+                user.put("content", input);
+            }
             messages.put(user);
 
             JSONObject req = new JSONObject();
@@ -83,7 +102,7 @@ public final class CwsProcessApi {
 
             HttpURLConnection conn = (HttpURLConnection) new URL(baseUrl + "/chat/completions").openConnection();
             conn.setConnectTimeout(20000);
-            conn.setReadTimeout(60000);
+            conn.setReadTimeout(image ? 120000 : 60000);
             conn.setRequestMethod("POST");
             conn.setDoOutput(true);
             conn.setRequestProperty("Content-Type", "application/json");
