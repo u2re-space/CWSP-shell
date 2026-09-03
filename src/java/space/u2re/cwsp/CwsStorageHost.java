@@ -527,19 +527,25 @@ public final class CwsStorageHost {
     private static final long MAX_READ_BYTES = 16L * 1024 * 1024;
     private static final long MAX_SHARE_COPY = 32L * 1024 * 1024;
 
+    /** Keep the original basename so QuickEdit / Process attachments are not `open-123-note_md`. */
+    private static String shareDisplayName(File file) {
+        String raw = file != null ? file.getName() : "";
+        if (raw == null) raw = "";
+        raw = raw.replace('\\', '_').replace('/', '_').trim();
+        if (raw.isEmpty() || ".".equals(raw) || "..".equals(raw)) return "file";
+        return raw;
+    }
+
     /**
-     * Copy into app cache so FileProvider serves a file this APK owns.
-     * External-path URIs often come back as Permission Denied in QuickEdit
-     * when the launcher is not the storage manager.
+     * Fallback only: copy into cache under the original name.
+     * Prefer the real `/sdcard/` file so FileProvider path is `…/Download/note.md`.
      */
     private static File copyIntoShareCache(Context ctx, File file) {
         if (ctx == null || file == null || !file.isFile()) return null;
+        if (file.length() <= 0 || file.length() > MAX_SHARE_COPY) return null;
         File dir = new File(ctx.getCacheDir(), "files");
         if (!dir.isDirectory() && !dir.mkdirs()) return null;
-        String raw = file.getName();
-        if (raw == null || raw.isEmpty()) raw = "file";
-        String safe = raw.replaceAll("[^a-zA-Z0-9._-]", "_");
-        File dest = new File(dir, "open-" + System.currentTimeMillis() + "-" + safe);
+        File dest = new File(dir, shareDisplayName(file));
         try (FileInputStream in = new FileInputStream(file);
                 FileOutputStream out = new FileOutputStream(dest)) {
             byte[] buf = new byte[16 * 1024];
@@ -559,13 +565,16 @@ public final class CwsStorageHost {
 
     private static Uri shareableFileUri(Context ctx, File file) {
         if (ctx == null || file == null || !file.isFile()) return null;
-        File dest = file;
-        if (file.length() > 0 && file.length() <= MAX_SHARE_COPY) {
-            File copied = copyIntoShareCache(ctx, file);
-            if (copied != null) dest = copied;
-        }
+        String authority = ctx.getPackageName() + ".fileprovider";
         try {
-            return FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".fileprovider", dest);
+            return FileProvider.getUriForFile(ctx, authority, file);
+        } catch (Exception e) {
+            Log.w(TAG, "FileProvider on original file failed — cache copy", e);
+        }
+        File copied = copyIntoShareCache(ctx, file);
+        if (copied == null) return null;
+        try {
+            return FileProvider.getUriForFile(ctx, authority, copied);
         } catch (Exception e) {
             Log.w(TAG, "shareable FileProvider failed", e);
             return null;

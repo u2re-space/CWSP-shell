@@ -1614,9 +1614,14 @@ public final class LauncherCoordinator {
                     /* WHY: grants apply via ClipData on some OEMs when using chooser. */
                     try {
                         if (view.getClipData() == null) {
+                            String clipName = parsed.getLastPathSegment();
+                            if (clipName == null || clipName.isEmpty()) clipName = "file";
                             view.setClipData(
                                     android.content.ClipData.newUri(
-                                            ctx.getContentResolver(), "cwsp", parsed));
+                                            ctx.getContentResolver(),
+                                            android.net.Uri.decode(clipName),
+                                            parsed));
+                            view.putExtra(Intent.EXTRA_TITLE, android.net.Uri.decode(clipName));
                         }
                     } catch (Exception ignored) {
                         /* ignore */
@@ -1812,6 +1817,7 @@ public final class LauncherCoordinator {
         send.putExtra(Intent.EXTRA_STREAM, parsed);
         if (name != null && !name.trim().isEmpty()) {
             send.putExtra(Intent.EXTRA_TITLE, name.trim());
+            send.putExtra(Intent.EXTRA_SUBJECT, name.trim());
         }
         send.addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK
@@ -1820,8 +1826,13 @@ public final class LauncherCoordinator {
                         | Intent.FLAG_GRANT_READ_URI_PERMISSION
                         | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         try {
+            String clipName =
+                    name != null && !name.trim().isEmpty()
+                            ? name.trim()
+                            : parsed.getLastPathSegment();
+            if (clipName == null || clipName.isEmpty()) clipName = "file";
             send.setClipData(
-                    android.content.ClipData.newUri(ctx.getContentResolver(), "cwsp", parsed));
+                    android.content.ClipData.newUri(ctx.getContentResolver(), clipName, parsed));
         } catch (Exception ignored) {
             /* optional */
         }
@@ -2185,10 +2196,19 @@ public final class LauncherCoordinator {
                 }
                 copied = copyShareUriToDisk(ctx, uri);
                 String display = queryShareDisplayName(ctx, uri);
-                if (!display.isEmpty()) slim.put("name", display);
-                else if (!slim.has("name")) {
+                String existing = slim.has("name") ? slim.getString("name", "") : "";
+                boolean cacheAlias =
+                        display != null && display.matches("(?i)open-\\d+-.*");
+                if (!display.isEmpty() && (existing == null || existing.isEmpty() || cacheAlias)) {
+                    if (!cacheAlias) slim.put("name", display);
+                } else if ((existing == null || existing.isEmpty()) && !slim.has("name")) {
                     String seg = uri.getLastPathSegment();
-                    if (seg != null && !seg.isEmpty()) slim.put("name", android.net.Uri.decode(seg));
+                    if (seg != null && !seg.isEmpty()) {
+                        String decoded = android.net.Uri.decode(seg);
+                        if (decoded != null && !decoded.matches("(?i)open-\\d+-.*")) {
+                            slim.put("name", decoded);
+                        }
+                    }
                 }
             } catch (Exception e) {
                 Log.w(TAG, "stashPendingShare copy failed", e);
