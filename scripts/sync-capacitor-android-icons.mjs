@@ -3,8 +3,8 @@
  * FullPath: apps/CWSP-shell/scripts/sync-capacitor-android-icons.mjs
  * FIND:sku
  * TAG:sku,apk-update
- * Change date and time: 16.40.00_27.08.2026
- * Reason for changes: Adaptive fg stays in the 72dp keyline so OEM shapes do not clip the glyph.
+ * Change date and time: 19.40.00_03.09.2026
+ * Reason for changes: Capacitor launcher glyphs sit inside the mask, not flush (document/explorer/process).
  *
  * Usage:
  *   node sync-capacitor-android-icons.mjs [--app /path/to/CWSP-<sku>]
@@ -35,8 +35,14 @@ const FOREGROUND_SIZES = {
     xxxhdpi: 432
 };
 
-/** WHY: OEM masks show the inner 72dp of the 108dp layer; full-bleed PWA art gets clipped. */
-const ADAPTIVE_SAFE_RATIO = 72 / 108;
+/*
+ * WHY: OEM masks show the inner 72dp of the 108dp layer. Full-bleed PWA art at
+ * 72/108 sits flush in the squircle (document / explorer / process / CrossWord).
+ * 56dp leaves ~8dp inset inside that viewport.
+ */
+const ADAPTIVE_SAFE_RATIO = 56 / 108;
+/** Legacy `ic_launcher` / round: same visual inset vs the 48dp plate. */
+const LAUNCHER_SAFE_RATIO = 56 / 72;
 
 const STAT_SIZES = {
     mdpi: 24,
@@ -139,8 +145,8 @@ function syncLauncherIcons(appRoot) {
 
     for (const [density, size] of Object.entries(LAUNCHER_SIZES)) {
         const dir = path.join(resRoot, `mipmap-${density}`);
-        resizePng(iconSrc, path.join(dir, "ic_launcher.png"), size);
-        resizePng(iconSrc, path.join(dir, "ic_launcher_round.png"), size);
+        writePngOnCanvas(iconSrc, path.join(dir, "ic_launcher.png"), size, LAUNCHER_SAFE_RATIO);
+        writePngOnCanvas(iconSrc, path.join(dir, "ic_launcher_round.png"), size, LAUNCHER_SAFE_RATIO);
     }
 
     for (const [density, size] of Object.entries(FOREGROUND_SIZES)) {
