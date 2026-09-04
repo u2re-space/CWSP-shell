@@ -1,5 +1,16 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
+
+/* WHY: same as CWSP-document/scripts/force-https1.mjs — ESM assignment does not
+ * patch Vite's `const { createSecureServer } = await import("node:http2")`. */
+{
+    const require = createRequire(import.meta.url);
+    const http2 = require("node:http2");
+    const https1 = require("node:https");
+    http2.createSecureServer = (options, listener) =>
+        typeof listener === "function" ? https1.createServer(options, listener) : https1.createServer(options);
+}
 
 import {
     assetFileNames as distAssetFileNames,
@@ -478,6 +489,8 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
             { find: /^@fest-lib\/lure\/provide$/, replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/provide.ts") },
             { find: /^@fest-lib\/lure\/idb-fs$/, replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/IdbFs.ts") },
             { find: /^@fest-lib\/lure\/remote-fs$/, replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/remote-fs.ts") },
+            /* WHY: nested @fest-lib/lure@0.1.50 has no ./code-overlay; fest/fl-ui cannot relative-import lur.e. */
+            { find: /^@fest-lib\/lure\/code-overlay$/, replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/lure/misc/CodeOverlay.ts") },
             { find: /^@fest-lib\/uniform\/mounted-fs$/, replacement: resolve(workspaceRoot, "modules/projects/uniform.ts/src/newer/messaging/MountedFs.ts") },
             /* Rolldown: bare tsconfig alias loses `?inline` imports on this key (viewer-view Markdown typography). */
             { find: /^markdown-view-typography(.*)$/, replacement: `${markdownTypographyScss}$1` },
@@ -516,6 +529,10 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
         process.env.NODE_ENV === "production";
     /** Set `VITE_PWA_DEV_DISABLE=1` when the dev service worker still causes stale UI (same tab as old precache). */
     const pwaDevServiceWorkerEnabled = process.env.VITE_PWA_DEV_DISABLE !== "1";
+    /* WHY: Vite HMR on `wss://LAN/?token=` still gets HTML frames (`Invalid frame
+     * header`) even after HTTP/1.1. The client then polls and `location.reload()`.
+     * Default off so LAN boot stays up. Re-enable: VITE_HMR=1 (path /__vite_hmr). */
+    const hmrEnabled = process.env.VITE_HMR === "1";
     /**
      * Optional absolute origin for generated module / HMR URLs (reverse proxy, odd LAN setups).
      * If unset, Vite uses the browser’s current host:port — required when you open dev via
@@ -539,7 +556,36 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
         const n = Number(raw);
         return Number.isFinite(n) && n > 0 && n < 65536 ? Math.floor(n) : 443;
     })();
+    /* WHY: Vite 8 still injects `@vite/client` when `hmr: false`. That client opens
+     * `wss://LAN/?token=` → Invalid frame header → poll → reload. Serve a no-WS stub. */
+    const viteClientStubPlugin = !hmrEnabled
+        ? {
+              name: "cwsp-vite-client-stub",
+              configureServer(devServer) {
+                  devServer.middlewares.use((req, res, next) => {
+                      const path = String(req.url || "").split("?")[0];
+                      if (path !== "/@vite/client") return next();
+                      res.statusCode = 200;
+                      res.setHeader("Content-Type", "text/javascript; charset=utf-8");
+                      res.setHeader("Cache-Control", "no-store");
+                      res.end(
+                          `console.debug("[vite] HMR disabled");\n` +
+                              `const noop = () => {};\n` +
+                              `export const createHotContext = () => ({\n` +
+                              `  data: {}, accept: noop, dispose: noop, prune: noop,\n` +
+                              `  invalidate: noop, on: noop, off: noop, send: noop\n` +
+                              `});\n` +
+                              `export const updateStyle = noop;\n` +
+                              `export const removeStyle = noop;\n` +
+                              `export const injectQuery = (url) => url;\n` +
+                              `export class ErrorOverlay extends HTMLElement {}\n`
+                      );
+                  });
+              },
+          }
+        : null;
     const plugins = [
+        ...(viteClientStubPlugin ? [viteClientStubPlugin] : []),
         mountedFsVitePlugin(workspaceRoot),
         evictStaleKatexDepChunksPlugin(),
         servePwaSrcAsDistPlugin(__dirname),
@@ -733,7 +779,15 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
         ...(devServerOrigin ? { origin: devServerOrigin } : {}),
         allowedHosts: true,
         appType: 'spa',
-        https,
+        hmr: hmrEnabled ? { path: "/__vite_hmr" } : false,
+        ws: hmrEnabled ? undefined : false,
+        https: {
+            ...https,
+            /* WHY: Vite 8 HTTPS is always node:http2 (ALPN h2). Chrome then opens
+             * HMR as WebSocket-over-h2; `ws` cannot parse those frames
+             * (`Invalid frame header` on wss://LAN/?token=). Force HTTP/1.1. */
+            ALPNProtocols: ["http/1.1"],
+        },
         proxy: {
             // Proxy Phosphor icons to avoid CORS issues
             '/assets/icons/phosphor': {
@@ -790,6 +844,17 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
             server.middlewares.use((req, res, next) => {
                 const url = req.url || '';
                 const pathname = url.split('?')[0] || '';
+
+                // WHY: Vite HMR is `GET /?token=…` + Upgrade: websocket. Rewriting that
+                // to /index.html returns HTML → `Invalid frame header` on wss://LAN/.
+                if (
+                    String(req.headers.upgrade || "").toLowerCase() === "websocket" ||
+                    Boolean(req.headers["sec-websocket-key"]) ||
+                    /[?&]token=/.test(url) ||
+                    pathname === "/__vite_hmr"
+                ) {
+                    return next();
+                }
 
                 // PWA static assets (dev: servePwaSrcAsDistPlugin) — never rewrite to index.html.
                 if (pathname.startsWith("/pwa/")) {
