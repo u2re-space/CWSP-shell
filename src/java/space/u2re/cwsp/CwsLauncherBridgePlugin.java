@@ -220,6 +220,19 @@ public class CwsLauncherBridgePlugin extends Plugin {
             storageHost.pickSaf(call);
             return;
         }
+        /* WHY: storage:read/list on the Capacitor thread ANR + Binder stall — viewer never left Loading. */
+        if ("storage:read".equals(channel) || "storage:list".equals(channel)) {
+            if (storageHost == null) storageHost = new CwsStorageHost(this);
+            final String ch = channel;
+            final JSObject pl = payload != null ? payload : new JSObject();
+            new Thread(() -> {
+                JSObject result = "storage:read".equals(ch)
+                        ? storageHost.read(pl)
+                        : storageHost.list(pl);
+                call.resolve(result);
+            }, "cwsp-storage-io").start();
+            return;
+        }
         JSObject result = dispatch(channel, payload);
         call.resolve(result);
     }

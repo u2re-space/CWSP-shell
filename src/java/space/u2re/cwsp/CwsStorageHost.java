@@ -663,6 +663,12 @@ public final class CwsStorageHost {
         JSObject r = base(true, "storage:read");
         JSObject echo = new JSObject();
         echo.put("root", "sdcard");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !isAllFilesGranted()) {
+            echo.put("error", "all-files-required");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
         File base = Environment.getExternalStorageDirectory();
         File file = base != null ? resolveUnder(base, path) : null;
         if (file == null || !file.isFile()) {
@@ -752,7 +758,20 @@ public final class CwsStorageHost {
         echo.put("name", name != null && !name.isEmpty() ? name : "file");
         echo.put("mime", type);
         echo.put("size", knownSize > 0 ? knownSize : bytes.length);
-        echo.put("data", "data:" + type + ";base64," + Base64.encodeToString(bytes, Base64.NO_WRAP));
+        String lowerName = name != null ? name.toLowerCase() : "";
+        boolean asText = type.startsWith("text/")
+                || type.contains("json")
+                || type.contains("xml")
+                || type.contains("markdown")
+                || lowerName.endsWith(".md")
+                || lowerName.endsWith(".markdown")
+                || lowerName.endsWith(".txt");
+        /* WHY: data: base64 + Binder (~1MB) freezes Capacitor invoke — Document stayed on Loading. */
+        if (asText) {
+            echo.put("text", new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+        } else {
+            echo.put("data", "data:" + type + ";base64," + Base64.encodeToString(bytes, Base64.NO_WRAP));
+        }
     }
 
     private static String lastPathSegment(String path) {
@@ -1105,6 +1124,11 @@ public final class CwsStorageHost {
         for (String seg : path.split("/")) {
             if (seg == null || seg.isEmpty() || ".".equals(seg)) continue;
             if ("..".equals(seg)) continue;
+            try {
+                seg = java.net.URLDecoder.decode(seg, "UTF-8");
+            } catch (Exception ignored) {
+                /* keep raw segment */
+            }
             dir = new File(dir, seg);
         }
         return dir;
