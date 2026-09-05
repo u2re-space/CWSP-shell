@@ -1,8 +1,9 @@
 /*
  * Filename: CwsStorageHost.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/CwsStorageHost.java
- * Change date: 12.40.00_30.08.2026
- * Reason: storage:delete for /sdcard/ + /saf/ (file and folder).
+ * FIND:file-markdown
+ * Change date: 15.55.00_05.09.2026
+ * Reason: CREATE_DOCUMENT result on Capacitor 8 + persist write URI.
  */
 package space.u2re.cwsp;
 
@@ -39,6 +40,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Native storage for Explorer: {@code /sdcard/} via {@code MANAGE_EXTERNAL_STORAGE}
@@ -47,19 +50,31 @@ import java.io.InputStream;
 public final class CwsStorageHost {
     private static final String TAG = "CwsStorageHost";
     static final int REQ_SAF = 0x5341;
+    static final int REQ_CREATE = 0x5343;
     private static final String PREFS = "cwsp_storage";
     private static final String KEY_SAF = "saf_tree_uri";
+    private static final long MAX_WRITE_BYTES = 16L * 1024 * 1024;
 
     private static CwsStorageHost instance;
 
     static boolean dispatchActivityResult(int requestCode, int resultCode, Intent data) {
-        if (instance == null || requestCode != REQ_SAF) return false;
-        instance.onActivityResult(requestCode, resultCode, data);
-        return true;
+        if (instance == null) return false;
+        if (requestCode == REQ_SAF) {
+            instance.onActivityResult(requestCode, resultCode, data);
+            return true;
+        }
+        /* WHY: Capacitor 8 may still deliver CREATE via Activity.onActivityResult. */
+        if (requestCode == REQ_CREATE) {
+            instance.onCreateDocumentResult(requestCode, resultCode, data);
+            return true;
+        }
+        return false;
     }
 
     private final Plugin plugin;
     private PluginCall pendingPick;
+    private PluginCall pendingCreate;
+    private JSObject pendingCreatePayload;
 
     CwsStorageHost(Plugin plugin) {
         this.plugin = plugin;
@@ -118,6 +133,89 @@ public final class CwsStorageHost {
         echo.put("incomingDir", tree.toString());
         r.put("echo", echo);
         call.resolve(r);
+    }
+
+    /**
+     * Android stand-in for {@code showSaveFilePicker}: ACTION_CREATE_DOCUMENT, then write UTF-8.
+     * WHY: Capacitor WebView has no File System Access picker; the path bar write is preferred.
+     */
+    void createDocument(PluginCall call, JSObject payload) {
+        Activity activity = plugin.getActivity();
+        if (activity == null) {
+            call.resolve(fail("storage:create-document", "no activity"));
+            return;
+        }
+        pendingCreate = call;
+        pendingCreatePayload = payload != null ? payload : new JSObject();
+        String name = pendingCreatePayload.getString("name", "document.md");
+        if (name == null || name.trim().isEmpty()) name = "document.md";
+        String mime = pendingCreatePayload.getString("mimeType", "text/markdown");
+        if (mime == null || mime.trim().isEmpty()) mime = "text/markdown";
+        mime = sanitizeCreateDocumentMime(name, mime);
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType(mime);
+        intent.putExtra(Intent.EXTRA_TITLE, name);
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            /* WHY: Capacitor 8 Activity Result API — raw startActivityForResult
+             * never reaches handleOnActivityResult, so Save hung after the sheet. */
+            if (plugin instanceof CwsLauncherBridgePlugin) {
+                ((CwsLauncherBridgePlugin) plugin).startStorageCreateDocument(call, intent);
+            } else {
+                activity.startActivityForResult(intent, REQ_CREATE);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "CREATE_DOCUMENT failed", e);
+            pendingCreate = null;
+            pendingCreatePayload = null;
+            call.resolve(fail("storage:create-document", "picker failed"));
+        }
+    }
+
+    void onCreateDocumentResult(int requestCode, int resultCode, Intent data) {
+        PluginCall call = pendingCreate;
+        JSObject payload = pendingCreatePayload;
+        pendingCreate = null;
+        pendingCreatePayload = null;
+        if (call == null) return;
+        if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
+            call.resolve(fail("storage:create-document", "cancelled"));
+            return;
+        }
+        Uri uri = data.getData();
+        Context ctx = plugin.getContext();
+        if (ctx == null) {
+            call.resolve(fail("storage:create-document", "no context"));
+            return;
+        }
+        int flags = data.getFlags()
+                & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if (flags == 0) {
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+        }
+        try {
+            ctx.getContentResolver().takePersistableUriPermission(uri, flags);
+        } catch (Exception e) {
+            Log.w(TAG, "takePersistableUriPermission create failed", e);
+        }
+        String text = payload != null ? payload.getString("text", "") : "";
+        if (text == null) text = "";
+        JSObject written = writeBytesToUri(uri, text.getBytes(StandardCharsets.UTF_8), "storage:create-document");
+        try {
+            JSObject echo = written.getJSObject("echo");
+            if (echo == null) {
+                echo = new JSObject();
+                written.put("echo", echo);
+            }
+            echo.put("uri", uri.toString());
+        } catch (Exception ignored) {
+            /* uri still on a successful write echo */
+        }
+        call.resolve(written);
     }
 
     JSObject list(JSObject payload) {
@@ -193,6 +291,34 @@ public final class CwsStorageHost {
         String path = payload != null ? payload.getString("path", "/") : "/";
         if ("saf".equals(root)) return deleteSaf(path);
         return deleteSdcard(path);
+    }
+
+    /**
+     * Create or overwrite a file under {@code /sdcard/} or {@code /saf/}.
+     * INVARIANT: refuses the storage root itself; creates missing parent folders.
+     */
+    JSObject write(JSObject payload) {
+        String root = payload != null ? payload.getString("root", "sdcard") : "sdcard";
+        String path = payload != null ? payload.getString("path", "/") : "/";
+        String text = payload != null ? payload.getString("text", "") : "";
+        if (text == null) text = "";
+        String mime = payload != null ? payload.getString("mimeType", "text/markdown") : "text/markdown";
+        if (mime == null || mime.trim().isEmpty()) mime = "text/markdown";
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > MAX_WRITE_BYTES) return fail("storage:write", "too large");
+        if ("saf".equals(root)) return writeSaf(path, bytes, mime);
+        return writeSdcard(path, bytes);
+    }
+
+    /** Overwrite a persisted {@code content://} from a previous create-document pick. */
+    JSObject writeUri(JSObject payload) {
+        String uri = payload != null ? payload.getString("uri", "") : "";
+        String text = payload != null ? payload.getString("text", "") : "";
+        if (text == null) text = "";
+        if (uri == null || uri.trim().isEmpty()) return fail("storage:write-uri", "no uri");
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > MAX_WRITE_BYTES) return fail("storage:write-uri", "too large");
+        return writeBytesToUri(Uri.parse(uri.trim()), bytes, "storage:write-uri");
     }
 
     /**
@@ -783,8 +909,33 @@ public final class CwsStorageHost {
         return "file";
     }
 
+    /**
+     * WHY: Android {@code MimeTypeMap} maps {@code .ts} → {@code video/mp2t}.
+     * CREATE_DOCUMENT then opens as video or strips the TypeScript name.
+     */
+    private static String sanitizeCreateDocumentMime(String name, String mime) {
+        String n = name != null ? name.toLowerCase() : "";
+        String m = mime != null ? mime.trim().toLowerCase() : "";
+        if (m.startsWith("video/") || "video/mp2t".equals(m)) return "application/octet-stream";
+        if (n.endsWith(".ts") || n.endsWith(".tsx") || n.endsWith(".mts") || n.endsWith(".cts")
+                || n.endsWith(".js") || n.endsWith(".jsx") || n.endsWith(".mjs") || n.endsWith(".cjs")
+                || n.endsWith(".css") || n.endsWith(".scss") || n.endsWith(".json")
+                || n.endsWith(".yml") || n.endsWith(".yaml") || n.endsWith(".py")
+                || n.endsWith(".sh") || n.endsWith(".xml")) {
+            return "application/octet-stream";
+        }
+        if (!n.isEmpty() && n.contains(".") && !n.endsWith(".md") && !n.endsWith(".markdown")
+                && ("text/markdown".equals(m) || m.isEmpty())) {
+            return "application/octet-stream";
+        }
+        return m.isEmpty() ? "application/octet-stream" : mime.trim();
+    }
+
     private static String guessMime(String name) {
         String n = name != null ? name.toLowerCase() : "";
+        if (n.endsWith(".ts") || n.endsWith(".tsx") || n.endsWith(".mts") || n.endsWith(".cts")) {
+            return "text/plain";
+        }
         if (n.endsWith(".txt") || n.endsWith(".log") || n.endsWith(".csv")) return "text/plain";
         if (n.endsWith(".md") || n.endsWith(".markdown")) return "text/markdown";
         if (n.endsWith(".html") || n.endsWith(".htm")) return "text/html";
@@ -1116,6 +1267,172 @@ public final class CwsStorageHost {
             }
         }
         return stored;
+    }
+
+    private JSObject writeSdcard(String path, byte[] bytes) {
+        JSObject r = base(true, "storage:write");
+        JSObject echo = new JSObject();
+        echo.put("root", "sdcard");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !isAllFilesGranted()) {
+            echo.put("error", "all-files-required");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
+        File base = Environment.getExternalStorageDirectory();
+        if (base == null) return fail("storage:write", "no external storage");
+        File file = resolveUnder(base, path);
+        if (file == null) return fail("storage:write", "bad path");
+        try {
+            String rootPath = base.getCanonicalPath();
+            String targetPath = file.getCanonicalPath();
+            if (targetPath.equals(rootPath) || !targetPath.startsWith(rootPath + File.separator)) {
+                return fail("storage:write", "refused");
+            }
+        } catch (Exception e) {
+            return fail("storage:write", "path");
+        }
+        File parent = file.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            return fail("storage:write", "mkdir");
+        }
+        try (FileOutputStream out = new FileOutputStream(file, false)) {
+            out.write(bytes != null ? bytes : new byte[0]);
+            out.flush();
+            echo.put("written", true);
+            echo.put("name", file.getName());
+            echo.put("path", file.getAbsolutePath());
+        } catch (Exception e) {
+            Log.w(TAG, "writeSdcard failed", e);
+            return fail("storage:write", String.valueOf(e.getMessage()));
+        }
+        r.put("echo", echo);
+        return r;
+    }
+
+    private JSObject writeSaf(String path, byte[] bytes, String mime) {
+        String stored = readSafUri();
+        if (stored.isEmpty()) return fail("storage:write", "No SAF tree mounted.");
+        if (path == null || path.isEmpty() || "/".equals(path)) return fail("storage:write", "refused");
+        Context ctx = plugin.getContext();
+        if (ctx == null) return fail("storage:write", "no context");
+        try {
+            Uri tree = Uri.parse(stored);
+            ContentResolver cr = ctx.getContentResolver();
+            String docId = ensureSafFileDocumentId(cr, tree, path, mime);
+            if (docId == null) return fail("storage:write", "create failed");
+            Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree, docId);
+            JSObject written = writeBytesToUri(doc, bytes, "storage:write");
+            JSObject writtenEcho = null;
+            try {
+                writtenEcho = written.getJSObject("echo");
+            } catch (Exception ignored) {
+                /* optional */
+            }
+            if (writtenEcho != null) {
+                writtenEcho.put("root", "saf");
+                writtenEcho.put("name", lastPathSegment(path));
+            }
+            return written;
+        } catch (Exception e) {
+            Log.w(TAG, "writeSaf failed", e);
+            return fail("storage:write", String.valueOf(e.getMessage()));
+        }
+    }
+
+    private JSObject writeBytesToUri(Uri uri, byte[] bytes, String channel) {
+        JSObject r = base(true, channel);
+        JSObject echo = new JSObject();
+        Context ctx = plugin.getContext();
+        if (ctx == null || uri == null) return fail(channel, "no context");
+        OutputStream out = null;
+        try {
+            out = ctx.getContentResolver().openOutputStream(uri, "wt");
+            if (out == null) out = ctx.getContentResolver().openOutputStream(uri, "w");
+            if (out == null) return fail(channel, "no stream");
+            out.write(bytes != null ? bytes : new byte[0]);
+            out.flush();
+            echo.put("written", true);
+            echo.put("uri", uri.toString());
+            echo.put("ok", true);
+        } catch (Exception e) {
+            Log.w(TAG, "writeBytesToUri failed", e);
+            return fail(channel, String.valueOf(e.getMessage()));
+        } finally {
+            if (out != null) {
+                try {
+                    out.close();
+                } catch (Exception ignored) {
+                    /* already flushed */
+                }
+            }
+        }
+        r.put("echo", echo);
+        return r;
+    }
+
+    /** Walk or create each SAF segment; last segment is the file. */
+    private static String ensureSafFileDocumentId(ContentResolver cr, Uri tree, String path, String mime) {
+        String docId = DocumentsContract.getTreeDocumentId(tree);
+        java.util.ArrayList<String> segs = new java.util.ArrayList<>();
+        if (path != null) {
+            for (String seg : path.split("/")) {
+                if (seg != null && !seg.isEmpty() && !".".equals(seg) && !"..".equals(seg)) {
+                    segs.add(seg);
+                }
+            }
+        }
+        if (segs.isEmpty()) return null;
+        String fileMime = mime != null && !mime.trim().isEmpty() ? mime : "text/markdown";
+        for (int i = 0; i < segs.size(); i++) {
+            String seg = segs.get(i);
+            boolean last = i == segs.size() - 1;
+            String next = findSafChildId(cr, tree, docId, seg, last);
+            if (next == null) {
+                try {
+                    Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, docId);
+                    String type = last ? fileMime : DocumentsContract.Document.MIME_TYPE_DIR;
+                    Uri created = DocumentsContract.createDocument(cr, parent, type, seg);
+                    if (created == null) return null;
+                    next = DocumentsContract.getDocumentId(created);
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            docId = next;
+        }
+        return docId;
+    }
+
+    private static String findSafChildId(
+            ContentResolver cr,
+            Uri tree,
+            String parentDocId,
+            String name,
+            boolean wantFile
+    ) {
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentDocId);
+        try (Cursor cursor = cr.query(
+                children,
+                new String[]{
+                        DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                        DocumentsContract.Document.COLUMN_MIME_TYPE
+                },
+                null, null, null)) {
+            if (cursor == null) return null;
+            while (cursor.moveToNext()) {
+                String display = cursor.getString(1);
+                String childMime = cursor.getString(2);
+                boolean isDir = DocumentsContract.Document.MIME_TYPE_DIR.equals(childMime);
+                if (!name.equals(display)) continue;
+                if (wantFile ? isDir : !isDir) continue;
+                return cursor.getString(0);
+            }
+        } catch (Exception e) {
+            return null;
+        }
+        return null;
     }
 
     private static File resolveUnder(File root, String path) {

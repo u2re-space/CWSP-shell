@@ -20,10 +20,13 @@ import android.os.Build;
 import android.text.TextUtils;
 import android.util.TypedValue;
 
+import androidx.activity.result.ActivityResult;
+
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.util.Locale;
@@ -180,7 +183,23 @@ public class CwsLauncherBridgePlugin extends Plugin {
             storageHost.onActivityResult(requestCode, resultCode, data);
             return;
         }
+        if (storageHost != null && requestCode == CwsStorageHost.REQ_CREATE) {
+            storageHost.onCreateDocumentResult(requestCode, resultCode, data);
+            return;
+        }
         super.handleOnActivityResult(requestCode, resultCode, data);
+    }
+
+    void startStorageCreateDocument(PluginCall call, Intent intent) {
+        startActivityForResult(call, intent, "onStorageCreateDocument");
+    }
+
+    /** Capacitor 8 Activity Result callback for {@code storage:create-document}. */
+    @ActivityCallback
+    private void onStorageCreateDocument(PluginCall call, ActivityResult result) {
+        if (storageHost == null) storageHost = new CwsStorageHost(this);
+        int code = result != null ? result.getResultCode() : android.app.Activity.RESULT_CANCELED;
+        storageHost.onCreateDocumentResult(CwsStorageHost.REQ_CREATE, code, result != null ? result.getData() : null);
     }
 
     @PluginMethod
@@ -220,15 +239,23 @@ public class CwsLauncherBridgePlugin extends Plugin {
             storageHost.pickSaf(call);
             return;
         }
-        /* WHY: storage:read/list on the Capacitor thread ANR + Binder stall — viewer never left Loading. */
-        if ("storage:read".equals(channel) || "storage:list".equals(channel)) {
+        if ("storage:create-document".equals(channel)) {
+            if (storageHost == null) storageHost = new CwsStorageHost(this);
+            storageHost.createDocument(call, payload);
+            return;
+        }
+        /* WHY: storage:read/list/write on the Capacitor thread ANR + Binder stall — viewer never left Loading. */
+        if ("storage:read".equals(channel) || "storage:list".equals(channel)
+                || "storage:write".equals(channel) || "storage:write-uri".equals(channel)) {
             if (storageHost == null) storageHost = new CwsStorageHost(this);
             final String ch = channel;
             final JSObject pl = payload != null ? payload : new JSObject();
             new Thread(() -> {
-                JSObject result = "storage:read".equals(ch)
-                        ? storageHost.read(pl)
-                        : storageHost.list(pl);
+                JSObject result;
+                if ("storage:read".equals(ch)) result = storageHost.read(pl);
+                else if ("storage:write".equals(ch)) result = storageHost.write(pl);
+                else if ("storage:write-uri".equals(ch)) result = storageHost.writeUri(pl);
+                else result = storageHost.list(pl);
                 call.resolve(result);
             }, "cwsp-storage-io").start();
             return;
@@ -442,6 +469,8 @@ public class CwsLauncherBridgePlugin extends Plugin {
             }
             case "storage:list":
             case "storage:read":
+            case "storage:write":
+            case "storage:write-uri":
             case "storage:uri":
             case "storage:open":
             case "storage:share":
@@ -452,6 +481,8 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 if (storageHost == null) storageHost = new CwsStorageHost(this);
                 if ("storage:list".equals(channel)) return storageHost.list(payload);
                 if ("storage:read".equals(channel)) return storageHost.read(payload);
+                if ("storage:write".equals(channel)) return storageHost.write(payload);
+                if ("storage:write-uri".equals(channel)) return storageHost.writeUri(payload);
                 if ("storage:uri".equals(channel)) return storageHost.uri(payload);
                 if ("storage:open".equals(channel)) return storageHost.open(payload);
                 if ("storage:share".equals(channel)) return storageHost.share(payload);
