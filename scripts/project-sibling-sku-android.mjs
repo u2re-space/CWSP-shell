@@ -51,6 +51,24 @@ const COPY_ROOT_FILES = [
     "proguard-rules.pro"
 ];
 
+function ensureGradleWrapperJar(androidRoot) {
+    const dest = path.join(androidRoot, "gradle/wrapper/gradle-wrapper.jar");
+    if (fs.existsSync(dest) && fs.statSync(dest).size > 0) return;
+    const candidates = [
+        path.join(LAUNCHER_ANDROID, "gradle/wrapper/gradle-wrapper.jar"),
+        path.resolve(SHELL_ROOT, "../CWSP-document/platforms/android/gradle/wrapper/gradle-wrapper.jar"),
+        path.resolve(SHELL_ROOT, "../CWSP-process/platforms/android/gradle/wrapper/gradle-wrapper.jar")
+    ];
+    for (const src of candidates) {
+        if (!fs.existsSync(src) || fs.statSync(src).size === 0) continue;
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.copyFileSync(src, dest);
+        console.log(`[sku-android] restored gradle-wrapper.jar → ${dest}`);
+        return;
+    }
+    throw new Error(`missing gradle-wrapper.jar for ${androidRoot}`);
+}
+
 function copyFile(src, dest) {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(src, dest);
@@ -96,6 +114,7 @@ function projectSku(skuName) {
         if (fs.existsSync(src)) copyFile(src, path.join(android, name));
     }
     copyTree(path.join(LAUNCHER_ANDROID, "gradle"), path.join(android, "gradle"));
+    ensureGradleWrapperJar(android);
     copyTree(
         path.join(LAUNCHER_ANDROID, "capacitor-cordova-android-plugins"),
         path.join(android, "capacitor-cordova-android-plugins")

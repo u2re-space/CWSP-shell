@@ -22,7 +22,10 @@
         (function () {
             var KEY = "cw-shell-preload-bust";
             function stale(msg) {
-                return /export named ['"]In['"]|__vitePreload|catch is not a function|Calling `require` for/i.test(String(msg || ""));
+                return /does not provide an export named|export named ['"]|__vitePreload|catch is not a function|Calling `require` for|Failed to fetch dynamically imported module|error loading dynamically imported module/i.test(String(msg || ""));
+            }
+            function missingEntry(src) {
+                return /\/assets\/index-[A-Za-z0-9_-]+\.(m?js|css)(?:$|\?)/i.test(String(src || ""));
             }
             function bust() {
                 if (sessionStorage.getItem(KEY)) return;
@@ -36,14 +39,16 @@
                     : Promise.resolve();
                 var clear = self.caches
                     ? caches.keys().then(function (keys) {
-                        return Promise.all(keys.filter(function (k) {
-                            return /workbox|precache|assets-cache/i.test(k);
-                        }).map(function (k) { return caches.delete(k); }));
+                        return Promise.all(keys.map(function (k) { return caches.delete(k); }));
                     })
                     : Promise.resolve();
                 Promise.all([unreg, clear]).then(done).catch(done);
             }
-            addEventListener("error", function (e) { if (stale(e && e.message)) bust(); });
+            addEventListener("error", function (e) {
+                if (stale(e && e.message)) bust();
+                var t = e && e.target;
+                if (t && missingEntry(t.src || t.href)) bust();
+            }, true);
             addEventListener("unhandledrejection", function (e) {
                 var r = e && e.reason;
                 if (stale(r && r.message ? r.message : r)) bust();

@@ -24,6 +24,45 @@ if (!fs.existsSync(path.join(src, "index.html"))) {
 
 fs.mkdirSync(path.dirname(dest), { recursive: true });
 
+const HASHED_NAME = /\.[A-Za-z0-9_-]{8,}\.(m?js|css)$/;
+
+function listHashedRel(root) {
+    const rels = [];
+    for (const folder of ["assets", "chunks"]) {
+        const dir = path.join(root, folder);
+        if (!fs.existsSync(dir)) continue;
+        for (const name of fs.readdirSync(dir)) {
+            if (!HASHED_NAME.test(name)) continue;
+            const fp = path.join(dir, name);
+            if (fs.statSync(fp).isFile()) rels.push(path.join(folder, name));
+        }
+    }
+    return rels;
+}
+
+/** COMPAT: keep one previous hashed generation so stale SW HTML can still fetch entry/chunks. */
+function snapshotHashed(stageDest) {
+    const genFile = path.join(stageDest, ".hashed-generation.json");
+    let onlyCurrent = null;
+    if (fs.existsSync(genFile)) {
+        try {
+            const g = JSON.parse(fs.readFileSync(genFile, "utf8"));
+            if (Array.isArray(g.current) && g.current.length) onlyCurrent = new Set(g.current);
+        } catch {
+            /* ignore */
+        }
+    }
+    const files = [];
+    if (!fs.existsSync(stageDest)) return { files, genFile };
+    for (const rel of listHashedRel(stageDest)) {
+        if (onlyCurrent && !onlyCurrent.has(rel)) continue;
+        files.push({ rel, buf: fs.readFileSync(path.join(stageDest, rel)) });
+    }
+    return { files, genFile };
+}
+
+const hashedSnap = snapshotHashed(dest);
+
 // WHY: keep README + any non-build notes; wipe previous promo/shell assets.
 const keep = new Set(["README.md"]);
 if (fs.existsSync(dest)) {
@@ -207,4 +246,19 @@ fs.writeFileSync(
 );
 
 hoistSharedSlices(dest, "stage-vds-main");
+
+{
+    const current = listHashedRel(dest);
+    const kept = [];
+    for (const item of hashedSnap.files) {
+        const to = path.join(dest, item.rel);
+        if (fs.existsSync(to)) continue;
+        fs.mkdirSync(path.dirname(to), { recursive: true });
+        fs.writeFileSync(to, item.buf);
+        kept.push(item.rel);
+    }
+    fs.writeFileSync(hashedSnap.genFile, JSON.stringify({ current, kept }, null, 2) + "\n");
+    if (kept.length) console.log(`[stage-vds-main] kept ${kept.length} previous hashed asset(s)`);
+}
+
 console.log(`[stage-vds-main] ${src} → ${dest}`);

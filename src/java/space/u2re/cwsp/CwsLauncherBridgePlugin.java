@@ -187,11 +187,19 @@ public class CwsLauncherBridgePlugin extends Plugin {
             storageHost.onCreateDocumentResult(requestCode, resultCode, data);
             return;
         }
+        if (storageHost != null && requestCode == CwsStorageHost.REQ_OPEN) {
+            storageHost.onOpenDocumentResult(requestCode, resultCode, data);
+            return;
+        }
         super.handleOnActivityResult(requestCode, resultCode, data);
     }
 
     void startStorageCreateDocument(PluginCall call, Intent intent) {
         startActivityForResult(call, intent, "onStorageCreateDocument");
+    }
+
+    void startStorageOpenDocument(PluginCall call, Intent intent) {
+        startActivityForResult(call, intent, "onStorageOpenDocument");
     }
 
     /** Capacitor 8 Activity Result callback for {@code storage:create-document}. */
@@ -200,6 +208,14 @@ public class CwsLauncherBridgePlugin extends Plugin {
         if (storageHost == null) storageHost = new CwsStorageHost(this);
         int code = result != null ? result.getResultCode() : android.app.Activity.RESULT_CANCELED;
         storageHost.onCreateDocumentResult(CwsStorageHost.REQ_CREATE, code, result != null ? result.getData() : null);
+    }
+
+    /** Capacitor 8 Activity Result callback for {@code storage:open-document}. */
+    @ActivityCallback
+    private void onStorageOpenDocument(PluginCall call, ActivityResult result) {
+        if (storageHost == null) storageHost = new CwsStorageHost(this);
+        int code = result != null ? result.getResultCode() : android.app.Activity.RESULT_CANCELED;
+        storageHost.onOpenDocumentResult(CwsStorageHost.REQ_OPEN, code, result != null ? result.getData() : null);
     }
 
     @PluginMethod
@@ -242,6 +258,11 @@ public class CwsLauncherBridgePlugin extends Plugin {
         if ("storage:create-document".equals(channel)) {
             if (storageHost == null) storageHost = new CwsStorageHost(this);
             storageHost.createDocument(call, payload);
+            return;
+        }
+        if ("storage:open-document".equals(channel)) {
+            if (storageHost == null) storageHost = new CwsStorageHost(this);
+            storageHost.openDocument(call, payload);
             return;
         }
         /* WHY: storage:read/list/write on the Capacitor thread ANR + Binder stall — viewer never left Loading. */

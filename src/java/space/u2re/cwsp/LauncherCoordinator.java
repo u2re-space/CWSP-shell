@@ -2190,9 +2190,17 @@ public final class LauncherCoordinator {
                 android.net.Uri uri = android.net.Uri.parse(uriRaw);
                 try {
                     ctx.getContentResolver()
-                            .takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            .takePersistableUriPermission(
+                                    uri,
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                            | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
                 } catch (Exception ignored) {
                     /* grant is optional — file:// and one-shot content:// */
+                }
+                String mapped = CwsStorageHost.uriToSdcardVirtualFile(uri);
+                if (mapped != null && !mapped.isEmpty()) {
+                    slim.put("virtualPath", mapped);
+                    slim.put("path", mapped);
                 }
                 copied = copyShareUriToDisk(ctx, uri);
                 String display = queryShareDisplayName(ctx, uri);

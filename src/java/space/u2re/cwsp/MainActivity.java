@@ -331,6 +331,11 @@ public class MainActivity extends BridgeActivity {
             if (raw != null && !raw.isEmpty()) {
                 share.put("uri", raw);
                 share.put("url", raw);
+                String mapped = CwsStorageHost.uriToSdcardVirtualFile(uri);
+                if (mapped != null && !mapped.isEmpty()) {
+                    share.put("virtualPath", mapped);
+                    share.put("path", mapped);
+                }
                 String name = uri.getLastPathSegment();
                 if (name != null && !name.isEmpty()) share.put("name", name);
             }

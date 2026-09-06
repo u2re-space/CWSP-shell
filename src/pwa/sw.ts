@@ -1966,7 +1966,8 @@ const offlineWarmupPaths = (): string[] => {
     if (/(^|\.)(process|workcenter)\.u2re\.space$/.test(host)) return ["/", "/workcenter", "/process", "/settings"];
     if (/(^|\.)(cwsp|transfer)\.u2re\.space$/.test(host)) return ["/", "/cwsp", "/settings"];
     if (host === "u2re.space" || host === "www.u2re.space") {
-        return ["/", "/viewer", "/explorer", "/workcenter", "/process", "/settings"];
+        // WHY: /viewer /explorer /process 302 to SKU hosts → opaqueredirect status=0.
+        return ["/", "/settings"];
     }
     return ["/", "/index.html", "/settings"];
 };
@@ -2094,12 +2095,42 @@ self.addEventListener?.('install', (e: any) => {
     void warmupOfflineNavigationCache("install");
 });
 
+const dropStaleDefaultHtml = async (): Promise<void> => {
+    try {
+        const names = await caches.keys();
+        await Promise.all(
+            names.map(async (name) => {
+                const cache = await caches.open(name);
+                const keys = await cache.keys();
+                await Promise.all(
+                    keys.map((req) => {
+                        let pathname = "";
+                        try { pathname = new URL(req.url).pathname; } catch { return Promise.resolve(); }
+                        if (
+                            pathname === "/" ||
+                            /\/index\.html$/i.test(pathname) ||
+                            /\/fest\//i.test(pathname) ||
+                            /\/com\/(?:app|service)\.js$/i.test(pathname)
+                        ) {
+                            return cache.delete(req);
+                        }
+                        return Promise.resolve();
+                    })
+                );
+            })
+        );
+    } catch {
+        /* ignore */
+    }
+};
+
 self.addEventListener?.('activate', (e: any) => {
     console.log('[SW] Activating service worker...');
     e?.waitUntil?.(
         Promise.all([
             (self as any).clients?.claim?.(),
             (self as any).registration?.navigationPreload?.disable?.() ?? Promise.resolve(),
+            dropStaleDefaultHtml(),
         ])
             .then(() => notifyClients("sw-activated"))
             .catch(() => notifyClients("sw-activated"))
@@ -2671,7 +2702,10 @@ registerRoute(
             }
 
             // Otherwise fall back to network
-            const networkResponse = await fetch(request);
+            const networkResponse = await fetch(request, {
+                cache: "no-store",
+                credentials: "same-origin",
+            });
             return networkResponse;
         } catch (error) {
             console.warn('[SW] Navigation fetch failed:', error);

@@ -23,6 +23,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.DocumentsContract;
+import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.util.Log;
 
@@ -51,6 +52,7 @@ public final class CwsStorageHost {
     private static final String TAG = "CwsStorageHost";
     static final int REQ_SAF = 0x5341;
     static final int REQ_CREATE = 0x5343;
+    static final int REQ_OPEN = 0x534F;
     private static final String PREFS = "cwsp_storage";
     private static final String KEY_SAF = "saf_tree_uri";
     private static final long MAX_WRITE_BYTES = 16L * 1024 * 1024;
@@ -68,12 +70,17 @@ public final class CwsStorageHost {
             instance.onCreateDocumentResult(requestCode, resultCode, data);
             return true;
         }
+        if (requestCode == REQ_OPEN) {
+            instance.onOpenDocumentResult(requestCode, resultCode, data);
+            return true;
+        }
         return false;
     }
 
     private final Plugin plugin;
     private PluginCall pendingPick;
     private PluginCall pendingCreate;
+    private PluginCall pendingOpen;
     private JSObject pendingCreatePayload;
 
     CwsStorageHost(Plugin plugin) {
@@ -216,6 +223,169 @@ public final class CwsStorageHost {
             /* uri still on a successful write echo */
         }
         call.resolve(written);
+    }
+
+    /**
+     * ACTION_OPEN_DOCUMENT — persist read/write and return uri + {@code /sdcard/…} when mappable.
+     * WHY: {@code <input type=file>} gives bytes with no path; Save cannot write back.
+     */
+    void openDocument(PluginCall call, JSObject payload) {
+        Activity activity = plugin.getActivity();
+        if (activity == null) {
+            call.resolve(fail("storage:open-document", "no activity"));
+            return;
+        }
+        pendingOpen = call;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
+                "text/*", "text/markdown", "text/plain", "application/json", "*/*"
+        });
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            if (plugin instanceof CwsLauncherBridgePlugin) {
+                ((CwsLauncherBridgePlugin) plugin).startStorageOpenDocument(call, intent);
+            } else {
+                activity.startActivityForResult(intent, REQ_OPEN);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "OPEN_DOCUMENT failed", e);
+            pendingOpen = null;
+            call.resolve(fail("storage:open-document", "picker failed"));
+        }
+    }
+
+    void onOpenDocumentResult(int requestCode, int resultCode, Intent data) {
+        PluginCall call = pendingOpen;
+        pendingOpen = null;
+        if (call == null) return;
+        if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
+            call.resolve(fail("storage:open-document", "cancelled"));
+            return;
+        }
+        Uri uri = data.getData();
+        Context ctx = plugin.getContext();
+        if (ctx == null) {
+            call.resolve(fail("storage:open-document", "no context"));
+            return;
+        }
+        int flags = data.getFlags()
+                & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if (flags == 0) {
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+        }
+        try {
+            ctx.getContentResolver().takePersistableUriPermission(uri, flags);
+        } catch (Exception e) {
+            Log.w(TAG, "takePersistableUriPermission open failed", e);
+        }
+        JSObject r = base(true, "storage:open-document");
+        JSObject echo = new JSObject();
+        echo.put("uri", uri.toString());
+        String virtual = uriToSdcardVirtualFile(uri);
+        if (!virtual.isEmpty()) echo.put("virtualPath", virtual);
+        String name = queryDisplayName(ctx, uri);
+        if (name == null || name.isEmpty()) name = uri.getLastPathSegment();
+        if (name == null || name.isEmpty()) name = "document.md";
+        echo.put("name", name);
+        try (InputStream in = ctx.getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                echo.put("error", "unreadable");
+                r.put("ok", false);
+            } else {
+                fillReadEcho(echo, in, name, guessMime(name), -1);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "open-document read failed", e);
+            echo.put("error", String.valueOf(e.getMessage()));
+            r.put("ok", false);
+        }
+        r.put("echo", echo);
+        call.resolve(r);
+    }
+
+    /** Map {@code content://…/primary:Download/a.md} or {@code file:///storage/emulated/0/…} → {@code /sdcard/…}. */
+    static String uriToSdcardVirtualFile(Uri uri) {
+        if (uri == null) return "";
+        if ("file".equalsIgnoreCase(uri.getScheme())) {
+            return fileOsPathToSdcardFile(uri.getPath());
+        }
+        String docId = "";
+        try {
+            docId = DocumentsContract.getDocumentId(uri);
+        } catch (Exception ignored) {
+            /* last segment */
+        }
+        if (docId == null || docId.isEmpty()) {
+            java.util.List<String> segs = uri.getPathSegments();
+            if (segs != null) {
+                for (int i = segs.size() - 1; i >= 0; i--) {
+                    String seg = segs.get(i);
+                    if (seg != null && seg.contains(":")) {
+                        docId = seg;
+                        break;
+                    }
+                }
+            }
+        }
+        String fromDoc = documentIdToSdcardFile(docId);
+        if (!fromDoc.isEmpty()) return fromDoc;
+        return fileOsPathToSdcardFile(uri.getPath());
+    }
+
+    private static String documentIdToSdcardFile(String docId) {
+        if (docId == null || docId.isEmpty()) return "";
+        int colon = docId.indexOf(':');
+        if (colon < 0) return "";
+        String volume = docId.substring(0, colon);
+        String rel = docId.substring(colon + 1).replace('\\', '/');
+        while (rel.startsWith("/")) rel = rel.substring(1);
+        if (!"primary".equalsIgnoreCase(volume) && !"home".equalsIgnoreCase(volume)) {
+            return "";
+        }
+        if (rel.isEmpty()) return "";
+        while (rel.endsWith("/")) rel = rel.substring(0, rel.length() - 1);
+        return rel.isEmpty() ? "" : "/sdcard/" + rel;
+    }
+
+    private static String fileOsPathToSdcardFile(String path) {
+        if (path == null || path.trim().isEmpty()) return "";
+        String p = path.trim().replace('\\', '/');
+        String[] prefixes = { "/storage/emulated/0", "/mnt/sdcard", "/sdcard" };
+        for (String pre : prefixes) {
+            if (p.equals(pre) || p.startsWith(pre + "/")) {
+                String rest = p.substring(pre.length());
+                while (rest.startsWith("/")) rest = rest.substring(1);
+                while (rest.endsWith("/")) rest = rest.substring(0, rest.length() - 1);
+                return rest.isEmpty() ? "" : "/sdcard/" + rest;
+            }
+        }
+        return "";
+    }
+
+    private static String queryDisplayName(Context ctx, Uri uri) {
+        if (ctx == null || uri == null) return "";
+        Cursor cursor = null;
+        try {
+            cursor = ctx.getContentResolver().query(
+                    uri, new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) {
+                    String name = cursor.getString(index);
+                    return name != null ? name : "";
+                }
+            }
+        } catch (Exception ignored) {
+            /* display name optional */
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return "";
     }
 
     JSObject list(JSObject payload) {
