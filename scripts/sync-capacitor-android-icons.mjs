@@ -4,7 +4,7 @@
  * FIND:sku
  * TAG:sku,apk-update
  * Change date and time: 19.40.00_03.09.2026
- * Reason for changes: Capacitor launcher glyphs sit inside the mask, not flush (document/explorer/process).
+ * Reason for changes: CWSP-shell uses assets/shell-icon-2026 mipmaps; siblings still get the 56/108 inset.
  *
  * Usage:
  *   node sync-capacitor-android-icons.mjs [--app /path/to/CWSP-<sku>]
@@ -133,6 +133,16 @@ function writeBackground(resRoot, hex) {
     );
 }
 
+function copyShellIconPack(resRoot) {
+    const packAndroid = path.join(SHELL_ROOT, "assets/shell-icon-2026/android");
+    if (!fs.existsSync(packAndroid)) return false;
+    for (const name of fs.readdirSync(packAndroid)) {
+        if (!name.startsWith("mipmap-") && name !== "values") continue;
+        fs.cpSync(path.join(packAndroid, name), path.join(resRoot, name), { recursive: true });
+    }
+    return true;
+}
+
 function syncLauncherIcons(appRoot) {
     const iconsDir = path.join(appRoot, "src/pwa/icons");
     const resRoot = path.join(appRoot, "platforms/android/res");
@@ -142,17 +152,20 @@ function syncLauncherIcons(appRoot) {
     }
     const maskableSrc = pickMaskable(iconsDir, iconSrc);
     const bg = sampleBackground(iconSrc);
+    const usedPack = path.resolve(appRoot) === SHELL_ROOT && copyShellIconPack(resRoot);
 
-    for (const [density, size] of Object.entries(LAUNCHER_SIZES)) {
-        const dir = path.join(resRoot, `mipmap-${density}`);
-        writePngOnCanvas(iconSrc, path.join(dir, "ic_launcher.png"), size, LAUNCHER_SAFE_RATIO);
-        writePngOnCanvas(iconSrc, path.join(dir, "ic_launcher_round.png"), size, LAUNCHER_SAFE_RATIO);
-    }
+    if (!usedPack) {
+        for (const [density, size] of Object.entries(LAUNCHER_SIZES)) {
+            const dir = path.join(resRoot, `mipmap-${density}`);
+            writePngOnCanvas(iconSrc, path.join(dir, "ic_launcher.png"), size, LAUNCHER_SAFE_RATIO);
+            writePngOnCanvas(iconSrc, path.join(dir, "ic_launcher_round.png"), size, LAUNCHER_SAFE_RATIO);
+        }
 
-    for (const [density, size] of Object.entries(FOREGROUND_SIZES)) {
-        const dir = path.join(resRoot, `mipmap-${density}`);
-        writePngOnCanvas(maskableSrc, path.join(dir, "ic_launcher_foreground.png"), size, ADAPTIVE_SAFE_RATIO);
-        writePngOnCanvas(iconSrc, path.join(dir, "ic_launcher_monochrome.png"), size, ADAPTIVE_SAFE_RATIO);
+        for (const [density, size] of Object.entries(FOREGROUND_SIZES)) {
+            const dir = path.join(resRoot, `mipmap-${density}`);
+            writePngOnCanvas(maskableSrc, path.join(dir, "ic_launcher_foreground.png"), size, ADAPTIVE_SAFE_RATIO);
+            writePngOnCanvas(iconSrc, path.join(dir, "ic_launcher_monochrome.png"), size, ADAPTIVE_SAFE_RATIO);
+        }
     }
 
     for (const [density, size] of Object.entries(STAT_SIZES)) {
@@ -163,7 +176,7 @@ function syncLauncherIcons(appRoot) {
     writeBackground(resRoot, bg);
 
     console.log(
-        `[sync-capacitor-android-icons] ${path.basename(appRoot)} icon=${path.basename(iconSrc)} fg=${path.basename(maskableSrc)} bg=${bg} → ${resRoot}`
+        `[sync-capacitor-android-icons] ${path.basename(appRoot)} icon=${path.basename(iconSrc)} fg=${path.basename(maskableSrc)} bg=${bg}${usedPack ? " pack=shell-icon-2026" : ""} → ${resRoot}`
     );
 }
 
