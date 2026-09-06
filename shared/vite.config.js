@@ -22,10 +22,11 @@ import {
 } from "./vite-chunk-placement.mjs";
 import { applyFestLibraryMode } from "../../../modules/shared/fest-web-libs.mjs";
 import { mountedFsVitePlugin } from "../../../runtime/fastify/plugins/mounted-fs.ts";
-
-//
-import https from "../private/https/certificate.mjs";
+import { loadViteHttpsOptions } from "../../../runtime/https/load-vite-https.mjs";
 import postcssConfig from "../postcss.config.js";
+
+/* WHY: app-local PEMs are optional; Capacitor/PWA build must not import a missing module. */
+const https = await loadViteHttpsOptions(import.meta.dirname);
 
 //
 import { viteStaticCopy } from 'vite-plugin-static-copy';
@@ -781,13 +782,17 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
         appType: 'spa',
         hmr: hmrEnabled ? { path: "/__vite_hmr" } : false,
         ws: hmrEnabled ? undefined : false,
-        https: {
-            ...https,
-            /* WHY: Vite 8 HTTPS is always node:http2 (ALPN h2). Chrome then opens
-             * HMR as WebSocket-over-h2; `ws` cannot parse those frames
-             * (`Invalid frame header` on wss://LAN/?token=). Force HTTP/1.1. */
-            ALPNProtocols: ["http/1.1"],
-        },
+        ...(https
+            ? {
+                  https: {
+                      ...https,
+                      /* WHY: Vite 8 HTTPS is always node:http2 (ALPN h2). Chrome then opens
+                       * HMR as WebSocket-over-h2; `ws` cannot parse those frames
+                       * (`Invalid frame header` on wss://LAN/?token=). Force HTTP/1.1. */
+                      ALPNProtocols: ["http/1.1"],
+                  },
+              }
+            : {}),
         proxy: {
             // Proxy Phosphor icons to avoid CORS issues
             '/assets/icons/phosphor': {

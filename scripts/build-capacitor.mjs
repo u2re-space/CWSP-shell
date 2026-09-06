@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 
 import { bumpCapacitorVersion } from "./bump-capacitor-version.mjs";
 import { loadPwaIdentity } from "./sync-capacitor-app-identity.mjs";
+import { requireJavaHome } from "./resolve-java-home.mjs";
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ANDROID_ROOT = path.join(APP_ROOT, "platforms/android");
@@ -49,21 +50,6 @@ function run(cmd, args, opts = {}) {
     }
 }
 
-function resolveJavaHome() {
-    if (process.env.JAVA_HOME && fs.existsSync(path.join(process.env.JAVA_HOME, "bin/java"))) {
-        return process.env.JAVA_HOME;
-    }
-    const candidates = [
-        process.env.JAVA_HOME_21,
-        "/usr/lib/jvm/java-21-openjdk-amd64",
-        "/usr/lib/jvm/java-17-openjdk-amd64",
-        process.env.JAVA_HOME_17
-    ].filter(Boolean);
-    for (const home of candidates) {
-        if (fs.existsSync(path.join(home, "bin/java"))) return home;
-    }
-    return process.env.JAVA_HOME || "";
-}
 
 function main() {
     const args = parseArgs(process.argv.slice(2));
@@ -90,15 +76,13 @@ function main() {
         throw new Error(`missing ${ANDROID_ROOT}/gradlew`);
     }
 
-    const javaHome = resolveJavaHome();
+    const javaHome = requireJavaHome();
     const env = {
+        JAVA_HOME: javaHome,
         ANDROID_HOME: process.env.ANDROID_HOME || "/home/u2re-dev/Android/Sdk",
         ANDROID_SDK_ROOT: process.env.ANDROID_SDK_ROOT || process.env.ANDROID_HOME || "/home/u2re-dev/Android/Sdk"
     };
-    if (javaHome) {
-        env.JAVA_HOME = javaHome;
-        console.log(`[build:capacitor] JAVA_HOME=${javaHome}`);
-    }
+    console.log(`[build:capacitor] JAVA_HOME=${javaHome}`);
 
     const buildType = args.release ? "Release" : "Debug";
     const task = `assemble${buildType}`;

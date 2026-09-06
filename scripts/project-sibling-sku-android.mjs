@@ -2,8 +2,8 @@
  * Filename: project-sibling-sku-android.mjs
  * FullPath: apps/CWSP-shell/scripts/project-sibling-sku-android.mjs
  * FIND:sku
- * Change date and time: 14.05.00_24.08.2026
- * Reason for changes: Explorer/document were manifest-only — clone launcher Gradle so they assemble.
+ * Change date and time: 13.50.00_06.09.2026
+ * Reason for changes: Hoisted workspace npm — @capacitor/android lives at repo-root node_modules.
  *
  * Usage:
  *   node scripts/project-sibling-sku-android.mjs explorer|document|process
@@ -127,10 +127,15 @@ function projectSku(skuName) {
     }
 
     const javaDir = posixRel(android, path.join(SHELL_ROOT, "src/java/space"));
-    const capAndroid = posixRel(
-        android,
-        path.join(SHELL_ROOT, "node_modules/@capacitor/android/capacitor")
-    );
+    const workspaceRoot = path.resolve(SHELL_ROOT, "../..");
+    const capAndroidRels = [
+        posixRel(android, path.join(SHELL_ROOT, "node_modules/@capacitor/android/capacitor")),
+        posixRel(android, path.join(workspaceRoot, "node_modules/@capacitor/android/capacitor")),
+        posixRel(android, path.join(appRoot, "node_modules/@capacitor/android/capacitor"))
+    ];
+    const capAndroidGroovy = capAndroidRels
+        .map((rel) => `    new File(settingsDir, '${rel}')`)
+        .join(",\n");
     const apkOut = posixRel(android, path.join(appRoot, "build/capacitor/apk"));
 
     fs.writeFileSync(
@@ -172,11 +177,14 @@ apply from: 'capacitor.settings.gradle'
  * Filename: capacitor.settings.gradle
  * FullPath: platforms/android/capacitor.settings.gradle
  * FIND:sku
- * WHY: sibling SKUs have no @capacitor/android of their own — use CWSP-shell's copy.
+ * WHY: sibling SKUs share @capacitor/android — nested shell copy or hoisted workspace root.
  */
-def capAndroid = new File(settingsDir, '${capAndroid}').canonicalFile
-if (!capAndroid.exists()) {
-    throw new GradleException("Unable to find @capacitor/android at \${capAndroid}")
+def capCandidates = [
+${capAndroidGroovy}
+]
+def capAndroid = capCandidates.collect { it.canonicalFile }.find { it.exists() }
+if (capAndroid == null) {
+    throw new GradleException("Unable to find @capacitor/android in \${capCandidates}")
 }
 include ':capacitor-android'
 project(':capacitor-android').projectDir = capAndroid
