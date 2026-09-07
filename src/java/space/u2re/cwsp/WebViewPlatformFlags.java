@@ -12,6 +12,7 @@ package space.u2re.cwsp;
 import android.content.Context;
 import android.os.Build;
 import android.util.Log;
+import android.view.View;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
@@ -81,6 +82,7 @@ public final class WebViewPlatformFlags {
     public static void applyToWebView(WebView webView) {
         if (webView == null) return;
         try {
+            webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
             WebSettings settings = webView.getSettings();
             invokeBooleanSetter(settings, "setExperimentalWebPlatformFeaturesEnabled", true);
             invokeBooleanSetter(settings, "setOffscreenPreRaster", true);
