@@ -2,6 +2,7 @@
  * Filename: CwsLauncherBridgePlugin.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/CwsLauncherBridgePlugin.java
  * FIND:app-menu
+ * TAG:native-display
  * Change date and time: 12.28.00_28.08.2026
  * Reason for changes: Uninstall uses Activity + ACTION_UNINSTALL_PACKAGE.
  */
@@ -68,6 +69,7 @@ public class CwsLauncherBridgePlugin extends Plugin {
         // WHY: resource navigation_bar_height is the 3-button pad even when SystemBars
         // already reserved it — injecting it into CSS painted a second empty strip.
         info.put("navigationBarHeightCss", 0);
+        CwspDisplayMetrics.putInto(info, getActivity(), getContext());
         String accent = materialYouAccentHex(getContext());
         if (!TextUtils.isEmpty(accent)) info.put("accentColor", accent);
         String wallpaper = wallpaperPrimaryHex(getContext());
@@ -77,6 +79,16 @@ public class CwsLauncherBridgePlugin extends Plugin {
         } catch (Exception ignored) {
             /* ignore */
         }
+        call.resolve(info);
+    }
+
+    /** Native window + display CSS-px, density, DPI/PPI — see FIND:native-display. */
+    @PluginMethod
+    public void getDisplayMetrics(PluginCall call) {
+        JSObject info = new JSObject();
+        info.put("native", true);
+        info.put("platform", "android");
+        CwspDisplayMetrics.putInto(info, getActivity(), getContext());
         call.resolve(info);
     }
 
