@@ -11,7 +11,7 @@ import { initPWA, checkForUpdates, forceRefreshAssets } from "core/pwa/pwa-handl
 import type { ShellId, ViewId } from "shared/boot/types";
 import { initializeLayers } from "shared/routing/layer-manager";
 import { pickEnabledView } from "shared/routing/views";
-import { loadAsAdopted } from "@fest-lib/dom";
+import { ensureVirtualKeyboardOverlay, loadAsAdopted } from "@fest-lib/dom";
 import { ensureAppLayers } from "shared/routing/app-layers";
 
 // Import PWA handlers
@@ -23,6 +23,8 @@ import {
     setupLaunchQueueConsumer,
     checkPendingShareData
 } from "core/pwa/sw-handling";
+
+ensureVirtualKeyboardOverlay();
 
 // Import uniform channel manager
 // ============================================================================

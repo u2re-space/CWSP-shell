@@ -263,7 +263,7 @@ const spaFallbackPlugin = () => ({
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=overlays-content" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content" />
   <title>SW handoff for /user</title>
   <style>
     body { margin:0; min-height:100vh; display:grid; place-items:center; background:#0f1115; color:#d6dbea; font:14px/1.45 ui-monospace,Menlo,Consolas,monospace; }

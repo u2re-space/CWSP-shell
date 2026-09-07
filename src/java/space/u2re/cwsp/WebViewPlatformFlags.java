@@ -23,8 +23,23 @@ import java.lang.reflect.Method;
  */
 public final class WebViewPlatformFlags {
     private static final String TAG = "CwspWebViewFlags";
-    private static final String BLINK_CSS =
-            "CSSNesting,CSSScope,CSSCascadeLayers,CSSHasPseudo,CSSLogical,ContainerQueries";
+    /* WHY: umbrella ExperimentalWebPlatformFeatures plus CSS blink names WebView
+     * still gates separately (@scope, nesting, overflow-block, stretch, VKB). */
+    private static final String BLINK_FEATURES =
+            "ExperimentalWebPlatformFeatures,"
+            + "CSSNesting,CSSScope,CSSCascadeLayers,CSSHasPseudo,CSSLogical,CSSLogicalOverflow,"
+            + "ContainerQueries,ContainerStyleQueries,ContainerQueriesOverflow,"
+            + "CSSAnchorPositioning,CSSAnchorPositioningOverlay,"
+            + "CSSFunctions,CSSMixins,CSSRelativeColor,CSSColorContrast,"
+            + "FieldSizingContent,CSSTextWrapPretty,CSSTextWrapBalance,"
+            + "VirtualKeyboardAPI,CSSCustomHighlightAPI,CSSCustomState,"
+            + "CSSReadingFlow,CSSScrollStateContainerQueries,CSSGapDecoration";
+    private static final String[] PROCESS_SWITCHES = {
+            "webview",
+            "--enable-experimental-web-platform-features",
+            "--enable-blink-features=" + BLINK_FEATURES,
+            "--enable-features=ExperimentalWebPlatformFeatures"
+    };
     private static boolean processFlagsTried = false;
 
     private WebViewPlatformFlags() {}
@@ -46,20 +61,17 @@ public final class WebViewPlatformFlags {
             if (!inited) {
                 Method init = findMethod(cmdLine, "init", 1);
                 if (init != null) {
-                    init.invoke(null, (Object) new String[] {
-                            "webview",
-                            "--enable-experimental-web-platform-features",
-                            "--enable-blink-features=" + BLINK_CSS
-                    });
-                    Log.i(TAG, "CommandLine.init experimental web-platform + " + BLINK_CSS);
+                    init.invoke(null, (Object) PROCESS_SWITCHES);
+                    Log.i(TAG, "CommandLine.init experimental web-platform + " + BLINK_FEATURES);
                     return;
                 }
             }
             Object inst = invokeStatic(cmdLine, "getInstance");
             if (inst == null) return;
             appendSwitch(inst, "enable-experimental-web-platform-features");
-            appendSwitchWithValue(inst, "enable-blink-features", BLINK_CSS);
-            Log.i(TAG, "CommandLine.append experimental web-platform + " + BLINK_CSS);
+            appendSwitchWithValue(inst, "enable-blink-features", BLINK_FEATURES);
+            appendSwitchWithValue(inst, "enable-features", "ExperimentalWebPlatformFeatures");
+            Log.i(TAG, "CommandLine.append experimental web-platform + " + BLINK_FEATURES);
         } catch (Throwable e) {
             Log.w(TAG, "CommandLine flags unavailable", e);
         }

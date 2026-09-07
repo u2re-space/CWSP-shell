@@ -23,7 +23,7 @@ import java.nio.charset.StandardCharsets;
 
 public final class CwsProcessApi {
     public static final String CHANNEL = "process:api";
-    public static final String DEFAULT_BASE_URL = "https://api.proxyapi.ru/openai/v1";
+    public static final String DEFAULT_BASE_URL = "https://api.proxyapi.ru/v1";
     public static final String DEFAULT_MODEL = "gpt-5.6-luna";
 
     private CwsProcessApi() {}
