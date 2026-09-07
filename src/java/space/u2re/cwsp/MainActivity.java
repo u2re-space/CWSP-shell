@@ -50,6 +50,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         SplashScreen.installSplashScreen(this);
         registerPlugin(CwsLauncherBridgePlugin.class);
+        registerPlugin(CwspKeyboardPlugin.class);
         try {
             EdgeToEdge.enable(
                     this,

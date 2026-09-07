@@ -93,6 +93,7 @@ public final class DisplayRefreshUnlock {
         } catch (Throwable e) {
             Log.w(TAG, "WebView settings failed", e);
         }
+        WebViewPlatformFlags.applyToWebView(webView);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
                 webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);

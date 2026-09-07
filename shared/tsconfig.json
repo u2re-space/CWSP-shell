@@ -62,6 +62,9 @@
             "@fest-lib/fl-ui/markdown/highlight": [
                 "../../modules/projects/fl.ui/src/ui/markdown/highlight.ts"
             ],
+            "@fest-lib/fl-ui/markdown/raw-editor": [
+                "../../modules/projects/fl.ui/src/ui/markdown/raw-editor/index.ts"
+            ],
             "@fest-lib/fl-ui/markdown/render": [
                 "../../modules/projects/fl.ui/src/ui/markdown/render.ts"
             ],

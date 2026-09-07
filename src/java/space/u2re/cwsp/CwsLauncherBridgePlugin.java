@@ -8,6 +8,7 @@
 
 package space.u2re.cwsp;
 
+import android.app.Activity;
 import android.app.WallpaperColors;
 import android.app.WallpaperManager;
 import android.content.ClipData;
@@ -19,8 +20,12 @@ import android.net.Uri;
 import android.os.Build;
 import android.text.TextUtils;
 import android.util.TypedValue;
+import android.view.View;
 
 import androidx.activity.result.ActivityResult;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -57,7 +62,9 @@ public class CwsLauncherBridgePlugin extends Plugin {
         info.put("native", true);
         info.put("platform", "android");
         info.put("sku", BuildConfig.CWSP_SKU);
-        info.put("statusBarHeightCss", systemBarHeightCss(getContext(), "status_bar_height"));
+        info.put("statusBarHeightCss", Math.max(
+                systemBarHeightCss(getContext(), "status_bar_height"),
+                displayCutoutTopCss(getActivity())));
         // WHY: resource navigation_bar_height is the 3-button pad even when SystemBars
         // already reserved it — injecting it into CSS painted a second empty strip.
         info.put("navigationBarHeightCss", 0);
@@ -146,6 +153,20 @@ public class CwsLauncherBridgePlugin extends Plugin {
         float density = context.getResources().getDisplayMetrics().density;
         if (density <= 0) return px;
         return px / density;
+    }
+
+    /** WHY: punch-hole / notch is taller than `status_bar_height`; `--env-native-safe-top` must cover it. */
+    private static double displayCutoutTopCss(Activity activity) {
+        if (activity == null || activity.getWindow() == null) return 0;
+        View decor = activity.getWindow().getDecorView();
+        if (decor == null) return 0;
+        WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(decor);
+        if (insets == null) return 0;
+        Insets cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout());
+        Insets status = insets.getInsets(WindowInsetsCompat.Type.statusBars());
+        float density = activity.getResources().getDisplayMetrics().density;
+        if (density <= 0f) density = 1f;
+        return Math.max(cut.top, status.top) / density;
     }
 
     @Override
