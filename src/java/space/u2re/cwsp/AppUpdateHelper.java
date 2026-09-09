@@ -185,13 +185,14 @@ final class AppUpdateHelper {
         JSObject r = base(true, "app:update:check");
         try {
             UpdateChannel ch = channelFor(context, payload);
-            String source = str(payload, "source", "wan");
+            String endpointUrl = str(payload, "endpointUrl", "");
+            String source = resolveSourceKey(payload, endpointUrl);
             String token = resolveToken(context, payload);
             if (ch.tokenRequired && token.isEmpty()) {
                 return fail("app:update:check", "ecosystem token required for " + ch.sku + " updates");
             }
             boolean allowInsecure = bool(payload, "allowInsecureTls", false);
-            String base = resolveBaseUrl(source, str(payload, "endpointUrl", ""));
+            String base = resolveBaseUrl(source, endpointUrl);
             if (base == null) {
                 return fail("app:update:check", "untrusted or empty update source");
             }
@@ -272,13 +273,14 @@ final class AppUpdateHelper {
         JSObject r = base(true, "app:update:install");
         try {
             UpdateChannel ch = channelFor(context, payload);
-            String source = str(payload, "source", "wan");
+            String endpointUrl = str(payload, "endpointUrl", "");
+            String source = resolveSourceKey(payload, endpointUrl);
             String token = resolveToken(context, payload);
             if (ch.tokenRequired && token.isEmpty()) {
                 return fail("app:update:install", "ecosystem token required for " + ch.sku + " updates");
             }
             boolean allowInsecure = bool(payload, "allowInsecureTls", false);
-            String base = resolveBaseUrl(source, str(payload, "endpointUrl", ""));
+            String base = resolveBaseUrl(source, endpointUrl);
             if (base == null) {
                 return fail("app:update:install", "untrusted or empty update source");
             }
@@ -555,11 +557,17 @@ final class AppUpdateHelper {
         return signaturesToSha256(info.signatures);
     }
 
-    /** Resolve WAN / LAN / relay base; null if untrusted. */
+    /** Resolve WAN / LAN / relay / host base; null if untrusted. */
     static String resolveBaseUrl(String source, String endpointUrl) {
-        String s = source == null ? "wan" : source.trim().toLowerCase(Locale.ROOT);
-        if ("wan".equals(s) || "152".equals(s)) return WAN_BASE;
-        if ("lan".equals(s) || "200".equals(s)) return LAN_BASE;
+        String s = source == null ? "" : source.trim().toLowerCase(Locale.ROOT);
+        if (s.isEmpty()) {
+            String fromEp = normalizeBase(endpointUrl);
+            if ("192.168.0.200".equals(hostOf(fromEp))) return LAN_BASE;
+            if (fromEp != null && isPrivateOrConfiguredHost(hostOf(fromEp), endpointUrl)) return fromEp;
+            s = "wan";
+        }
+        if (s.contains("192.168.0.200") || "lan".equals(s) || "200".equals(s)) return LAN_BASE;
+        if (s.contains("45.147.121.152") || "wan".equals(s) || "152".equals(s)) return WAN_BASE;
         if ("relay".equals(s) || "endpoint".equals(s) || "current".equals(s)) {
             String base = normalizeBase(endpointUrl);
             if (base == null) return null;
@@ -570,10 +578,8 @@ final class AppUpdateHelper {
             }
             return null;
         }
-        // Absolute URL passed as source
-        if (s.startsWith("https://")) {
-            String base = normalizeBase(source);
-            if (base == null) return null;
+        String base = normalizeBase(source);
+        if (base != null) {
             String host = hostOf(base);
             if (host != null && (FIXED_HOSTS.contains(host) || isPrivateOrConfiguredHost(host, endpointUrl))) {
                 return base;
@@ -713,8 +719,8 @@ final class AppUpdateHelper {
         HttpURLConnection conn = open(url, token, allowInsecure);
         try {
             conn.setRequestMethod("GET");
-            conn.setConnectTimeout(12000);
-            conn.setReadTimeout(20000);
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(8000);
             int code = conn.getResponseCode();
             InputStream stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
             String body = readAll(stream);
@@ -740,7 +746,7 @@ final class AppUpdateHelper {
         HttpURLConnection conn = open(url, token, allowInsecure);
         try {
             conn.setRequestMethod("GET");
-            conn.setConnectTimeout(15000);
+            conn.setConnectTimeout(8000);
             conn.setReadTimeout(120000);
             int code = conn.getResponseCode();
             if (code == 401 || code == 403) {
@@ -828,6 +834,17 @@ final class AppUpdateHelper {
         if (s == null) return "";
         String t = s.replaceAll("\\s+", " ").trim();
         return t.length() <= max ? t : t.substring(0, max) + "…";
+    }
+
+    /** Prefer explicit picker; otherwise LAN when Relay is already .200. */
+    private static String resolveSourceKey(JSObject payload, String endpointUrl) {
+        String source = str(payload, "source", "");
+        if (source.isEmpty()) source = str(payload, "apkUpdateSource", "");
+        source = source != null ? source.trim() : "";
+        if (!source.isEmpty()) return source;
+        String epHost = hostOf(normalizeBase(endpointUrl));
+        if ("192.168.0.200".equals(epHost)) return "lan";
+        return "wan";
     }
 
     private static String str(JSObject payload, String key, String fallback) {

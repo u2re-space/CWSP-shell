@@ -2,8 +2,8 @@
  * Filename: CwsStorageHost.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/CwsStorageHost.java
  * FIND:file-markdown
- * Change date: 15.55.00_05.09.2026
- * Reason: CREATE_DOCUMENT result on Capacitor 8 + persist write URI.
+ * Change date: 17.40.00_09.09.2026
+ * Reason: Open-document / Open-with: PFD stream + resolve the Capacitor PluginCall.
  */
 package space.u2re.cwsp;
 
@@ -14,6 +14,7 @@ import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.AssetFileDescriptor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.content.SharedPreferences;
@@ -22,6 +23,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
@@ -42,6 +44,9 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PushbackInputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -260,16 +265,24 @@ public final class CwsStorageHost {
     }
 
     void onOpenDocumentResult(int requestCode, int resultCode, Intent data) {
-        PluginCall call = pendingOpen;
+        finishOpenDocument(pendingOpen, resultCode, data);
+    }
+
+    /**
+     * Finish ACTION_OPEN_DOCUMENT. INVARIANT: resolve the Capacitor {@link PluginCall}
+     * from the Activity callback — not a stale {@code pendingOpen}.
+     */
+    void finishOpenDocument(PluginCall call, int resultCode, Intent data) {
+        if (call == null) call = pendingOpen;
         pendingOpen = null;
         if (call == null) return;
         if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
             call.resolve(fail("storage:open-document", "cancelled"));
             return;
         }
-        Uri uri = data.getData();
-        Context ctx = plugin.getContext();
-        if (ctx == null) {
+        final Uri uri = data.getData();
+        final Context ctx = plugin.getContext();
+        if (ctx == null || uri == null) {
             call.resolve(fail("storage:open-document", "no context"));
             return;
         }
@@ -283,16 +296,27 @@ public final class CwsStorageHost {
         } catch (Exception e) {
             Log.w(TAG, "takePersistableUriPermission open failed", e);
         }
+        final PluginCall resolveCall = call;
+        new Thread(() -> resolveCall.resolve(readOpenDocumentEcho(ctx, uri)), "cwsp-open-doc").start();
+    }
+
+    private JSObject readOpenDocumentEcho(Context ctx, Uri uri) {
         JSObject r = base(true, "storage:open-document");
         JSObject echo = new JSObject();
         echo.put("uri", uri.toString());
         String virtual = uriToSdcardVirtualFile(uri);
         if (!virtual.isEmpty()) echo.put("virtualPath", virtual);
         String name = queryDisplayName(ctx, uri);
+        if (name == null || name.isEmpty()) {
+            String os = unwrapEmbeddedFileOsPath(uri);
+            if (!os.isEmpty()) name = lastPathSegment(os);
+        }
         if (name == null || name.isEmpty()) name = uri.getLastPathSegment();
-        if (name == null || name.isEmpty()) name = "document.md";
+        if (name == null || name.isEmpty() || name.toLowerCase().startsWith("file:")) {
+            name = !virtual.isEmpty() ? lastPathSegment(virtual) : "document.md";
+        }
         echo.put("name", name);
-        try (InputStream in = ctx.getContentResolver().openInputStream(uri)) {
+        try (InputStream in = openReadableStream(ctx, uri)) {
             if (in == null) {
                 echo.put("error", "unreadable");
                 r.put("ok", false);
@@ -305,7 +329,197 @@ public final class CwsStorageHost {
             r.put("ok", false);
         }
         r.put("echo", echo);
-        call.resolve(r);
+        return r;
+    }
+
+    /**
+     * Material Files FileProvider: last segment is {@code file:///storage/emulated/0/…}
+     * (sometimes double-encoded). Open-with grants often do not survive; the OS path does.
+     */
+    static String unwrapEmbeddedFileOsPath(Uri uri) {
+        if (uri == null) return "";
+        String fromSeg = unwrapEmbeddedFileOsPath(uri.getLastPathSegment());
+        if (!fromSeg.isEmpty()) return fromSeg;
+        String fromPath = unwrapEmbeddedFileOsPath(uri.getPath());
+        if (!fromPath.isEmpty()) return fromPath;
+        return unwrapEmbeddedFileOsPath(uri.toString());
+    }
+
+    static String unwrapEmbeddedFileOsPath(String raw) {
+        if (raw == null || raw.isEmpty()) return "";
+        String cur = raw.trim();
+        for (int i = 0; i < 4; i++) {
+            String next = Uri.decode(cur);
+            if (next == null || next.equals(cur)) break;
+            cur = next;
+        }
+        if (cur.startsWith("/file:")) cur = cur.substring(1);
+        String lower = cur.toLowerCase();
+        int fileAt = lower.indexOf("file:");
+        if (fileAt >= 0) {
+            try {
+                Uri parsed = Uri.parse(cur.substring(fileAt));
+                String path = parsed != null ? parsed.getPath() : null;
+                if (path != null && !path.isEmpty()) return path;
+            } catch (Exception ignored) {
+                /* keep scanning */
+            }
+        }
+        if (cur.startsWith("/storage/") || cur.startsWith("/mnt/sdcard") || cur.startsWith("/sdcard")) {
+            return cur;
+        }
+        return "";
+    }
+
+    /**
+     * Material Files FileProvider last-segment is often double-encoded
+     * {@code file:///storage/…}. Prefer PFD on the granted URI (openInputStream
+     * can succeed with 0 bytes). Then decoded variants, then the OS path.
+     */
+    static InputStream openReadableStream(Context ctx, Uri uri) {
+        if (ctx == null || uri == null) return null;
+        InputStream granted = openDescriptorStream(ctx, uri);
+        if (granted != null) return granted;
+        InputStream first = openResolverIfNonEmpty(ctx, uri);
+        if (first != null) return first;
+        for (Uri candidate : contentUriVariants(uri)) {
+            if (candidate == uri || (candidate != null && candidate.equals(uri))) continue;
+            InputStream viaFd = openDescriptorStream(ctx, candidate);
+            if (viaFd != null) return viaFd;
+            InputStream in = openResolverIfNonEmpty(ctx, candidate);
+            if (in != null) return in;
+        }
+        if ("file".equalsIgnoreCase(uri.getScheme())) {
+            InputStream fileIn = openOsFile(uri.getPath());
+            if (fileIn != null) return fileIn;
+        }
+        return openOsFile(unwrapEmbeddedFileOsPath(uri));
+    }
+
+    /** WHY: FileProvider {@code openInputStream} is often a 0-byte wrapper; PFD has the real length. */
+    private static InputStream openDescriptorStream(Context ctx, Uri uri) {
+        if (ctx == null || uri == null) return null;
+        ContentResolver cr = ctx.getContentResolver();
+        try {
+            AssetFileDescriptor afd = cr.openAssetFileDescriptor(uri, "r");
+            if (afd != null) {
+                if (afd.getLength() == 0L) {
+                    try {
+                        afd.close();
+                    } catch (Exception ignored) {
+                        /* empty */
+                    }
+                    return null;
+                }
+                try {
+                    return afd.createInputStream();
+                } catch (Exception e) {
+                    try {
+                        afd.close();
+                    } catch (Exception ignored) {
+                        /* ignore */
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "openAssetFileDescriptor failed, try PFD", e);
+        }
+        try {
+            ParcelFileDescriptor pfd = cr.openFileDescriptor(uri, "r");
+            if (pfd != null) {
+                if (pfd.getStatSize() == 0L) {
+                    try {
+                        pfd.close();
+                    } catch (Exception ignored) {
+                        /* empty */
+                    }
+                    return null;
+                }
+                return new ParcelFileDescriptor.AutoCloseInputStream(pfd);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "openFileDescriptor failed", e);
+        }
+        return null;
+    }
+
+    private static List<Uri> contentUriVariants(Uri uri) {
+        List<Uri> out = new ArrayList<Uri>(4);
+        if (uri == null) return out;
+        out.add(uri);
+        String raw = uri.toString();
+        if (raw == null || raw.isEmpty()) return out;
+        String once = Uri.decode(raw);
+        if (once != null && !once.equals(raw)) {
+            try {
+                out.add(Uri.parse(once));
+            } catch (Exception ignored) {
+                /* skip */
+            }
+            String twice = Uri.decode(once);
+            if (twice != null && !twice.equals(once)) {
+                try {
+                    out.add(Uri.parse(twice));
+                } catch (Exception ignored) {
+                    /* skip */
+                }
+            }
+        }
+        return out;
+    }
+
+    private static InputStream openResolverIfNonEmpty(Context ctx, Uri uri) {
+        if (ctx == null || uri == null) return null;
+        InputStream in = null;
+        try {
+            in = ctx.getContentResolver().openInputStream(uri);
+            if (in == null) return null;
+            PushbackInputStream pin = new PushbackInputStream(in, 1);
+            int first = pin.read();
+            if (first < 0) {
+                try {
+                    pin.close();
+                } catch (Exception ignored) {
+                    /* empty */
+                }
+                return null;
+            }
+            pin.unread(first);
+            return pin;
+        } catch (Exception e) {
+            Log.w(TAG, "openInputStream failed, try next", e);
+            try {
+                if (in != null) in.close();
+            } catch (Exception ignored) {
+                /* ignore */
+            }
+            return null;
+        }
+    }
+
+    private static InputStream openOsFile(String path) {
+        if (path == null || path.isEmpty()) return null;
+        File src = new File(path);
+        if (!src.isFile()) return null;
+        try {
+            return new FileInputStream(src);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    /** Path-bar URIs are sometimes double-encoded; try the raw string, then one decode. */
+    static InputStream openReadableStreamMaybeDecoded(Context ctx, Uri uri, String raw) {
+        InputStream in = openReadableStream(ctx, uri);
+        if (in != null) return in;
+        if (raw == null || raw.isEmpty()) return null;
+        String decoded = Uri.decode(raw);
+        if (decoded == null || decoded.equals(raw)) return null;
+        try {
+            return openReadableStream(ctx, Uri.parse(decoded));
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     /** Map {@code content://…/primary:Download/a.md} or {@code file:///storage/emulated/0/…} → {@code /sdcard/…}. */
@@ -314,6 +528,8 @@ public final class CwsStorageHost {
         if ("file".equalsIgnoreCase(uri.getScheme())) {
             return fileOsPathToSdcardFile(uri.getPath());
         }
+        String embedded = fileOsPathToSdcardFile(unwrapEmbeddedFileOsPath(uri));
+        if (!embedded.isEmpty()) return embedded;
         String docId = "";
         try {
             docId = DocumentsContract.getDocumentId(uri);
@@ -478,6 +694,53 @@ public final class CwsStorageHost {
         if (bytes.length > MAX_WRITE_BYTES) return fail("storage:write", "too large");
         if ("saf".equals(root)) return writeSaf(path, bytes, mime);
         return writeSdcard(path, bytes);
+    }
+
+    /** Read {@code content://} / {@code file://} for Document ACTION_VIEW. */
+    JSObject readUri(JSObject payload) {
+        String raw = payload != null ? payload.getString("uri", "") : "";
+        if (raw == null || raw.trim().isEmpty()) return fail("storage:read-uri", "no uri");
+        Uri uri;
+        try {
+            uri = Uri.parse(raw.trim());
+        } catch (Exception e) {
+            return fail("storage:read-uri", "uri");
+        }
+        JSObject r = base(true, "storage:read-uri");
+        JSObject echo = new JSObject();
+        echo.put("uri", uri != null ? uri.toString() : raw.trim());
+        String mapped = uriToSdcardVirtualFile(uri);
+        if (!mapped.isEmpty()) echo.put("virtualPath", mapped);
+        Context ctx = plugin.getContext();
+        if (ctx == null || uri == null) {
+            echo.put("error", "no context");
+            r.put("ok", false);
+            r.put("echo", echo);
+            return r;
+        }
+        String name = queryDisplayName(ctx, uri);
+        if (name == null || name.isEmpty()) {
+            String os = unwrapEmbeddedFileOsPath(uri);
+            if (!os.isEmpty()) name = lastPathSegment(os);
+        }
+        if (name == null || name.isEmpty()) name = uri.getLastPathSegment();
+        if (name == null || name.isEmpty() || name.toLowerCase().startsWith("file:")) {
+            name = !mapped.isEmpty() ? lastPathSegment(mapped) : "document.txt";
+        }
+        try (InputStream in = openReadableStreamMaybeDecoded(ctx, uri, raw.trim())) {
+            if (in == null) {
+                echo.put("error", "unreadable");
+                r.put("ok", false);
+            } else {
+                fillReadEcho(echo, in, name, guessMime(name), -1);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "readUri failed", e);
+            echo.put("error", String.valueOf(e.getMessage()));
+            r.put("ok", false);
+        }
+        r.put("echo", echo);
+        return r;
     }
 
     /** Overwrite a persisted {@code content://} from a previous create-document pick. */
@@ -959,33 +1222,34 @@ public final class CwsStorageHost {
         JSObject r = base(true, "storage:read");
         JSObject echo = new JSObject();
         echo.put("root", "sdcard");
+        File base = Environment.getExternalStorageDirectory();
+        File file = base != null ? resolveUnder(base, path) : null;
+        /* WHY: canRead() is often false without all-files even when the path is the Open-with file. */
+        if (file != null && file.isFile()) {
+            if (file.length() > MAX_READ_BYTES) {
+                echo.put("error", "too large");
+                r.put("ok", false);
+                r.put("echo", echo);
+                return r;
+            }
+            try (FileInputStream in = new FileInputStream(file)) {
+                fillReadEcho(echo, in, file.getName(), guessMime(file.getName()), file.length());
+            } catch (Exception e) {
+                Log.w(TAG, "readSdcard failed", e);
+                echo.put("error", String.valueOf(e.getMessage()));
+                r.put("ok", false);
+            }
+            r.put("echo", echo);
+            return r;
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !isAllFilesGranted()) {
             echo.put("error", "all-files-required");
             r.put("ok", false);
             r.put("echo", echo);
             return r;
         }
-        File base = Environment.getExternalStorageDirectory();
-        File file = base != null ? resolveUnder(base, path) : null;
-        if (file == null || !file.isFile()) {
-            echo.put("error", "not a file");
-            r.put("ok", false);
-            r.put("echo", echo);
-            return r;
-        }
-        if (file.length() <= 0 || file.length() > MAX_READ_BYTES) {
-            echo.put("error", file.length() > MAX_READ_BYTES ? "too large" : "empty");
-            r.put("ok", false);
-            r.put("echo", echo);
-            return r;
-        }
-        try (FileInputStream in = new FileInputStream(file)) {
-            fillReadEcho(echo, in, file.getName(), guessMime(file.getName()), file.length());
-        } catch (Exception e) {
-            Log.w(TAG, "readSdcard failed", e);
-            echo.put("error", String.valueOf(e.getMessage()));
-            r.put("ok", false);
-        }
+        echo.put("error", "not a file");
+        r.put("ok", false);
         r.put("echo", echo);
         return r;
     }
@@ -1055,19 +1319,61 @@ public final class CwsStorageHost {
         echo.put("mime", type);
         echo.put("size", knownSize > 0 ? knownSize : bytes.length);
         String lowerName = name != null ? name.toLowerCase() : "";
-        boolean asText = type.startsWith("text/")
-                || type.contains("json")
-                || type.contains("xml")
-                || type.contains("markdown")
-                || lowerName.endsWith(".md")
-                || lowerName.endsWith(".markdown")
-                || lowerName.endsWith(".txt");
-        /* WHY: data: base64 + Binder (~1MB) freezes Capacitor invoke — Document stayed on Loading. */
-        if (asText) {
-            echo.put("text", new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+        boolean binary = looksLikeBinary(type, lowerName, bytes);
+        /* WHY: data: base64 freezes Capacitor — Document always takes UTF-8 `content`. */
+        if (!binary) {
+            String utf8 = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            echo.put("text", utf8);
+            echo.put("content", utf8);
         } else {
-            echo.put("data", "data:" + type + ";base64," + Base64.encodeToString(bytes, Base64.NO_WRAP));
+            echo.put("error", "binary");
         }
+    }
+
+    private static boolean looksLikeBinary(String type, String name, byte[] bytes) {
+        String t = type != null ? type.toLowerCase() : "";
+        if (t.startsWith("image/") || t.startsWith("audio/") || t.startsWith("video/")
+                || t.contains("pdf") || t.contains("zip") || t.contains("octet-stream")) {
+            if (nameEndsWithText(name)) return false;
+            if (t.contains("pdf") || t.startsWith("image/") || t.startsWith("audio/") || t.startsWith("video/")) {
+                return true;
+            }
+        }
+        if (name != null) {
+            if (name.endsWith(".pdf") || name.endsWith(".png") || name.endsWith(".jpg")
+                    || name.endsWith(".jpeg") || name.endsWith(".gif") || name.endsWith(".webp")
+                    || name.endsWith(".zip") || name.endsWith(".apk")) {
+                return true;
+            }
+        }
+        if (bytes == null || bytes.length == 0) return false;
+        int cap = Math.min(bytes.length, 256);
+        int nul = 0;
+        for (int i = 0; i < cap; i++) {
+            if (bytes[i] == 0) nul++;
+        }
+        return nul > 2;
+    }
+
+    private static boolean nameEndsWithText(String name) {
+        if (name == null) return false;
+        String n = name.toLowerCase();
+        for (int i = 0; i < 3; i++) {
+            try {
+                String decoded = Uri.decode(n);
+                if (decoded == null || decoded.equals(n)) break;
+                n = decoded;
+            } catch (Exception e) {
+                break;
+            }
+        }
+        int slash = Math.max(n.lastIndexOf('/'), n.lastIndexOf('\\'));
+        if (slash >= 0 && slash + 1 < n.length()) n = n.substring(slash + 1);
+        return n.endsWith(".md") || n.endsWith(".markdown") || n.endsWith(".txt")
+                || n.endsWith(".log") || n.endsWith(".csv") || n.endsWith(".json")
+                || n.endsWith(".xml") || n.endsWith(".html") || n.endsWith(".htm")
+                || n.endsWith(".css") || n.endsWith(".js") || n.endsWith(".ts")
+                || n.endsWith(".yml") || n.endsWith(".yaml");
     }
 
     private static String lastPathSegment(String path) {

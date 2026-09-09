@@ -248,7 +248,8 @@ public class CwsLauncherBridgePlugin extends Plugin {
     private void onStorageOpenDocument(PluginCall call, ActivityResult result) {
         if (storageHost == null) storageHost = new CwsStorageHost(this);
         int code = result != null ? result.getResultCode() : android.app.Activity.RESULT_CANCELED;
-        storageHost.onOpenDocumentResult(CwsStorageHost.REQ_OPEN, code, result != null ? result.getData() : null);
+        /* WHY: resolve *this* PluginCall — pendingOpen.resolve() does not complete Capacitor invoke. */
+        storageHost.finishOpenDocument(call, code, result != null ? result.getData() : null);
     }
 
     @PluginMethod
@@ -298,9 +299,59 @@ public class CwsLauncherBridgePlugin extends Plugin {
             storageHost.openDocument(call, payload);
             return;
         }
+        /* WHY: pending-share / read-share-file on the Capacitor thread + data: URL = invoke never returns. */
+        if ("launcher:pending-share".equals(channel)
+                || "launcher:read-share-file".equals(channel)
+                || "launcher:restash-share-file".equals(channel)) {
+            final String ch = channel;
+            final Context ctx = getActivity() != null ? getActivity() : getContext();
+            new Thread(() -> {
+                JSObject result;
+                if ("launcher:read-share-file".equals(ch)) {
+                    result = LauncherCoordinator.readPendingShareFile(ctx);
+                } else if ("launcher:restash-share-file".equals(ch)) {
+                    result = LauncherCoordinator.restashPendingShareFile(ctx);
+                } else {
+                    result = LauncherCoordinator.consumePendingShare(ctx);
+                }
+                call.resolve(result);
+            }, "cwsp-share-io").start();
+            return;
+        }
+        if ("document:load".equals(channel)) {
+            if (storageHost == null) storageHost = new CwsStorageHost(this);
+            final JSObject pl = payload != null ? payload : new JSObject();
+            final Context ctx = getActivity() != null ? getActivity() : getContext();
+            final CwsStorageHost host = storageHost;
+            new Thread(() -> call.resolve(CwsDocumentLoad.load(ctx, host, pl)), "cwsp-document-load").start();
+            return;
+        }
+        /* WHY: HTTP to a dead host on the Capacitor thread freezes Settings / Network. */
+        if ("app:update:check".equals(channel) || "app:update:install".equals(channel)
+                || "network:probe".equals(channel) || "network:dispatch-probe".equals(channel)) {
+            final String ch = channel;
+            final JSObject pl = payload != null ? payload : new JSObject();
+            final android.app.Activity activity = getActivity();
+            final Context ctx = getContext();
+            new Thread(() -> {
+                JSObject result;
+                if ("app:update:install".equals(ch)) {
+                    result = AppUpdateHelper.install(ctx, activity, pl);
+                } else if ("app:update:check".equals(ch)) {
+                    result = AppUpdateHelper.check(ctx, pl);
+                } else if ("network:dispatch-probe".equals(ch)) {
+                    result = CwsNetworkProbe.dispatchProbe(pl);
+                } else {
+                    result = CwsNetworkProbe.probe(pl);
+                }
+                call.resolve(result);
+            }, "cwsp-net-io").start();
+            return;
+        }
         /* WHY: storage:read/list/write on the Capacitor thread ANR + Binder stall — viewer never left Loading. */
         if ("storage:read".equals(channel) || "storage:list".equals(channel)
-                || "storage:write".equals(channel) || "storage:write-uri".equals(channel)) {
+                || "storage:write".equals(channel) || "storage:write-uri".equals(channel)
+                || "storage:read-uri".equals(channel)) {
             if (storageHost == null) storageHost = new CwsStorageHost(this);
             final String ch = channel;
             final JSObject pl = payload != null ? payload : new JSObject();
@@ -309,6 +360,7 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 if ("storage:read".equals(ch)) result = storageHost.read(pl);
                 else if ("storage:write".equals(ch)) result = storageHost.write(pl);
                 else if ("storage:write-uri".equals(ch)) result = storageHost.writeUri(pl);
+                else if ("storage:read-uri".equals(ch)) result = storageHost.readUri(pl);
                 else result = storageHost.list(pl);
                 call.resolve(result);
             }, "cwsp-storage-io").start();
@@ -524,6 +576,7 @@ public class CwsLauncherBridgePlugin extends Plugin {
             case "storage:list":
             case "storage:read":
             case "storage:write":
+            case "storage:read-uri":
             case "storage:write-uri":
             case "storage:uri":
             case "storage:open":
@@ -536,6 +589,7 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 if ("storage:list".equals(channel)) return storageHost.list(payload);
                 if ("storage:read".equals(channel)) return storageHost.read(payload);
                 if ("storage:write".equals(channel)) return storageHost.write(payload);
+                if ("storage:read-uri".equals(channel)) return storageHost.readUri(payload);
                 if ("storage:write-uri".equals(channel)) return storageHost.writeUri(payload);
                 if ("storage:uri".equals(channel)) return storageHost.uri(payload);
                 if ("storage:open".equals(channel)) return storageHost.open(payload);
@@ -576,6 +630,16 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 return AppUpdateHelper.check(getContext(), payload);
             case "app:update:install":
                 return AppUpdateHelper.install(getContext(), getActivity(), payload);
+            case "network:probe":
+                return CwsNetworkProbe.probe(payload);
+            case "network:dispatch-probe":
+                return CwsNetworkProbe.dispatchProbe(payload);
+            case "document:load":
+                if (storageHost == null) storageHost = new CwsStorageHost(this);
+                return CwsDocumentLoad.load(
+                        getActivity() != null ? getActivity() : getContext(),
+                        storageHost,
+                        payload);
             default: {
                 JSObject r = baseResult(false, channel);
                 JSObject echo = new JSObject();

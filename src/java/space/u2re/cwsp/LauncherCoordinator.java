@@ -49,6 +49,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -2189,6 +2190,15 @@ public final class LauncherCoordinator {
             try {
                 android.net.Uri uri = android.net.Uri.parse(uriRaw);
                 try {
+                    ctx.grantUriPermission(
+                            ctx.getPackageName(),
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                } catch (Exception ignored) {
+                    /* own-package grant optional */
+                }
+                try {
                     ctx.getContentResolver()
                             .takePersistableUriPermission(
                                     uri,
@@ -2203,6 +2213,12 @@ public final class LauncherCoordinator {
                     slim.put("path", mapped);
                 }
                 copied = copyShareUriToDisk(ctx, uri);
+                File disk = pendingShareFile(ctx);
+                /* WHY: Document SKU is a text editor — do not drop bytes because MIME is octet-stream. */
+                if (disk != null && disk.isFile() && disk.length() > 0 && disk.length() <= 256L * 1024) {
+                    String body = readShareFileUtf8(disk);
+                    if (body != null && !body.isEmpty()) slim.put("content", body);
+                }
                 String display = queryShareDisplayName(ctx, uri);
                 String existing = slim.has("name") ? slim.getString("name", "") : "";
                 boolean cacheAlias =
@@ -2276,19 +2292,7 @@ public final class LauncherCoordinator {
         InputStream in = null;
         FileOutputStream out = null;
         try {
-            try {
-                in = ctx.getContentResolver().openInputStream(uri);
-            } catch (Exception e) {
-                Log.w(TAG, "openInputStream failed, try file path", e);
-            }
-            /* WHY: Open-with from Notes/etc often ships file:///storage/... — resolver is null. */
-            if (in == null && "file".equalsIgnoreCase(uri.getScheme())) {
-                String path = uri.getPath();
-                if (path != null && !path.isEmpty()) {
-                    File src = new File(path);
-                    if (src.isFile() && src.canRead()) in = new FileInputStream(src);
-                }
-            }
+            in = CwsStorageHost.openReadableStream(ctx, uri);
             if (in == null) return false;
             out = new FileOutputStream(dest);
             byte[] buf = new byte[16 * 1024];
@@ -2303,7 +2307,8 @@ public final class LauncherCoordinator {
                 out.write(buf, 0, n);
             }
             out.flush();
-            return dest.length() > 0;
+            /* WHY: FileProvider can open a 0-byte stream; dest.isFile() was true and JS acked empty. */
+            return dest.isFile() && dest.length() > 0;
         } catch (Exception e) {
             Log.w(TAG, "copyShareUriToDisk failed", e);
             try {
@@ -2354,26 +2359,105 @@ public final class LauncherCoordinator {
         JSObject echo = new JSObject();
         if (share != null) {
             putClipped(echo, share, "text", 64 * 1024);
+            putClipped(echo, share, "content", 256 * 1024);
             putClipped(echo, share, "title", BRIDGE_LABEL_MAX);
             putClipped(echo, share, "name", 256);
             putClipped(echo, share, "mime", 128);
             String url = firstPinString(share, "url", "uri");
-            if (!url.isEmpty() && url.length() <= 8 * 1024) echo.put("url", url);
+            if (!url.isEmpty() && url.length() <= 8 * 1024) {
+                echo.put("url", url);
+                echo.put("uri", url);
+            }
+            String mapped = firstPinString(share, "virtualPath", "path");
+            if (!mapped.isEmpty()) {
+                echo.put("virtualPath", mapped);
+                echo.put("path", mapped);
+            }
             boolean hasFile = false;
             try {
-                String flag = share.getString("hasFile", "");
-                hasFile = "true".equalsIgnoreCase(flag) || "1".equals(flag);
+                hasFile = share.getBool("hasFile");
             } catch (Exception ignored) {
-                /* optional */
+                try {
+                    String flag = share.getString("hasFile", "");
+                    hasFile = "true".equalsIgnoreCase(flag) || "1".equals(flag);
+                } catch (Exception ignored2) {
+                    /* optional */
+                }
             }
             File disk = pendingShareFile(ctx);
-            if (disk != null && disk.isFile() && disk.length() > 0) hasFile = true;
+            if (disk != null && disk.isFile() && disk.length() > 0) {
+                hasFile = true;
+                /* WHY: Binder data: URLs drop in Document WebView — send UTF-8 here. */
+                if (disk.length() <= 256L * 1024) {
+                    String body = readShareFileUtf8(disk);
+                    if (body != null && !body.isEmpty()) echo.put("content", body);
+                }
+            }
             echo.put("hasFile", hasFile);
             long stashedAt = readStashedAt(share);
             if (stashedAt > 0L) echo.put("stashedAt", stashedAt);
         }
         r.put("echo", echo);
         return r;
+    }
+
+    private static boolean isTextShare(String mime, String name, String url) {
+        String m = mime != null ? mime.toLowerCase() : "";
+        if (m.startsWith("text/") || m.contains("markdown") || m.contains("json") || m.contains("xml")) {
+            return true;
+        }
+        String n = name != null ? name : "";
+        if (n.isEmpty() && url != null) n = url;
+        n = n.toLowerCase();
+        int slash = Math.max(n.lastIndexOf('/'), n.lastIndexOf('%'));
+        String base = slash >= 0 ? n.substring(slash + 1) : n;
+        return base.endsWith(".md")
+                || base.endsWith(".markdown")
+                || base.endsWith(".txt")
+                || base.endsWith(".log")
+                || base.endsWith(".csv")
+                || base.endsWith(".json")
+                || base.endsWith(".xml")
+                || base.endsWith(".html")
+                || base.endsWith(".htm")
+                || base.endsWith(".css")
+                || base.endsWith(".js")
+                || base.endsWith(".ts")
+                || base.endsWith(".yml")
+                || base.endsWith(".yaml");
+    }
+
+    /** UTF-8 of {@code pending-share.bin} — used by {@code document:load} when MIME is not text/*. */
+    public static String pendingShareUtf8(Context ctx) {
+        File disk = pendingShareFile(ctx);
+        if (disk == null || !disk.isFile() || disk.length() <= 0) return "";
+        String body = readShareFileUtf8(disk);
+        return body != null ? body : "";
+    }
+
+    private static String readShareFileUtf8(File disk) {
+        if (disk == null || !disk.isFile()) return null;
+        FileInputStream in = null;
+        try {
+            in = new FileInputStream(disk);
+            byte[] bytes = new byte[(int) disk.length()];
+            int off = 0;
+            while (off < bytes.length) {
+                int n = in.read(bytes, off, bytes.length - off);
+                if (n < 0) break;
+                off += n;
+            }
+            return new String(bytes, 0, off, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            Log.w(TAG, "readShareFileUtf8 failed", e);
+            return null;
+        } finally {
+            try {
+                if (in != null) in.close();
+            } catch (Exception ignored) {
+                /* ignore */
+            }
+        }
     }
 
     static long readStashedAt(JSObject row) {
@@ -2434,7 +2518,7 @@ public final class LauncherCoordinator {
         JSObject echo = new JSObject();
         File disk = pendingShareFile(ctx);
         JSObject meta = peekPendingShare(ctx);
-        if (disk != null && disk.isFile() && disk.length() > 0 && disk.length() <= MAX_SHARE_BYTES) {
+        if (disk != null && disk.isFile() && disk.length() <= MAX_SHARE_BYTES) {
             FileInputStream in = null;
             try {
                 in = new FileInputStream(disk);
@@ -2449,9 +2533,16 @@ public final class LauncherCoordinator {
                 if (mime.isEmpty()) mime = "application/octet-stream";
                 String name = meta != null ? firstPinString(meta, "name") : "";
                 if (name.isEmpty()) name = "shared.bin";
-                echo.put("data", "data:" + mime + ";base64," + Base64.encodeToString(bytes, Base64.NO_WRAP));
+                String url = meta != null ? firstPinString(meta, "url", "uri") : "";
                 echo.put("mime", mime);
                 echo.put("name", name);
+                /* WHY: data: base64 on this channel froze Capacitor — text files go as UTF-8. */
+                if (isTextShare(mime, name, url)) {
+                    echo.put("text", new String(bytes, 0, off, StandardCharsets.UTF_8));
+                    echo.put("content", new String(bytes, 0, off, StandardCharsets.UTF_8));
+                } else {
+                    echo.put("data", "data:" + mime + ";base64," + Base64.encodeToString(bytes, Base64.NO_WRAP));
+                }
             } catch (Exception e) {
                 Log.w(TAG, "readPendingShareFile failed", e);
             } finally {
