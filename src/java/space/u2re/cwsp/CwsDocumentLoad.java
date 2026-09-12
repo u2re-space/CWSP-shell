@@ -30,11 +30,25 @@ final class CwsDocumentLoad {
             JSObject share = LauncherCoordinator.consumePendingShare(ctx);
             JSObject echo = echoOf(share);
             if (hasBody(echo)) return ok(echo);
-            String stash = LauncherCoordinator.pendingShareUtf8(ctx);
-            if (stash != null && !stash.isEmpty()) {
+            byte[] stash = LauncherCoordinator.pendingShareBytes(ctx);
+            if (stash != null && stash.length > 0) {
                 if (echo == null) echo = new JSObject();
-                echo.put("content", stash);
-                echo.put("text", stash);
+                String mime = first(echo, "mime", "name");
+                String name = str(echo, "name");
+                if (name.isEmpty()) name = str(echo, "title");
+                boolean text = LauncherCoordinator.isTextShare(mime, name, first(echo, "url", "uri"));
+                if (text) {
+                    String utf8 = new String(stash, java.nio.charset.StandardCharsets.UTF_8);
+                    echo.put("content", utf8);
+                    echo.put("text", utf8);
+                } else if (stash.length <= CwsStorageHost.MAX_HEX_ECHO_BYTES) {
+                    echo.put("hex", CwsStorageHost.encodeCompactHex(stash));
+                    echo.put("binary", true);
+                    echo.put("error", "binary");
+                } else {
+                    echo.put("binary", true);
+                    echo.put("error", "too large");
+                }
                 return ok(echo);
             }
             if (uri.isEmpty()) uri = first(echo, "url", "uri");
@@ -98,6 +112,15 @@ final class CwsDocumentLoad {
             String name = str(echo, "name");
             if (name.isEmpty()) name = str(echo, "title");
             if (!name.isEmpty()) r.put("name", name);
+            String mime = str(echo, "mime");
+            if (!mime.isEmpty()) r.put("mime", mime);
+            String hex = str(echo, "hex");
+            if (!hex.isEmpty()) r.put("hex", hex);
+            try {
+                if (echo.has("binary")) r.put("binary", echo.get("binary"));
+            } catch (Exception ignored) {
+                /* optional */
+            }
             try {
                 if (echo.has("stashedAt")) r.put("stashedAt", echo.get("stashedAt"));
             } catch (Exception ignored) {
@@ -142,8 +165,10 @@ final class CwsDocumentLoad {
 
     private static boolean hasBody(JSObject echo) {
         if (echo == null) return false;
-        String content = first(echo, "content", "text");
-        return content != null && !content.isEmpty();
+            String content = first(echo, "content", "text");
+            if (content != null && !content.isEmpty()) return true;
+            String hex = str(echo, "hex");
+            return hex != null && !hex.isEmpty();
     }
 
     private static JSObject payloadOf(String key, String value) {

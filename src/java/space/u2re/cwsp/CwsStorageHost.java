@@ -214,9 +214,8 @@ public final class CwsStorageHost {
         } catch (Exception e) {
             Log.w(TAG, "takePersistableUriPermission create failed", e);
         }
-        String text = payload != null ? payload.getString("text", "") : "";
-        if (text == null) text = "";
-        JSObject written = writeBytesToUri(uri, text.getBytes(StandardCharsets.UTF_8), "storage:create-document");
+        byte[] bytes = decodeWritePayload(payload);
+        JSObject written = writeBytesToUri(uri, bytes, "storage:create-document");
         try {
             JSObject echo = written.getJSObject("echo");
             if (echo == null) {
@@ -680,17 +679,72 @@ public final class CwsStorageHost {
     }
 
     /**
+     * WHY: hex Save must write bytes, not a UTF-8 string of hex letters.
+     * COMPAT: {@code hex} (spaces allowed) → {@code base64} → UTF-8 {@code text}.
+     */
+    private static byte[] decodeWritePayload(JSObject payload) {
+        if (payload == null) return new byte[0];
+        if (payload.has("hex")) {
+            String hex = payload.getString("hex", "");
+            return decodeCompactHex(hex != null ? hex : "");
+        }
+        if (payload.has("base64")) {
+            String b64 = payload.getString("base64", "");
+            if (b64 == null || b64.trim().isEmpty()) return new byte[0];
+            try {
+                return Base64.decode(b64, Base64.DEFAULT);
+            } catch (Exception e) {
+                return new byte[0];
+            }
+        }
+        String text = payload.getString("text", "");
+        if (text == null) text = "";
+        return text.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static byte[] decodeCompactHex(String raw) {
+        if (raw == null || raw.isEmpty()) return new byte[0];
+        StringBuilder compact = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+                compact.append(c);
+            }
+        }
+        if ((compact.length() & 1) == 1) compact.append('0');
+        int n = compact.length() / 2;
+        byte[] out = new byte[n];
+        for (int i = 0; i < n; i++) {
+            out[i] = (byte) Integer.parseInt(compact.substring(i * 2, i * 2 + 2), 16);
+        }
+        return out;
+    }
+
+    /** Compact lowercase hex — Document WebView cannot take {@code data:} for binary. */
+    static String encodeCompactHex(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return "";
+        char[] hex = new char[bytes.length * 2];
+        for (int i = 0; i < bytes.length; i++) {
+            int v = bytes[i] & 0xff;
+            hex[i * 2] = HEX_DIGITS[v >>> 4];
+            hex[i * 2 + 1] = HEX_DIGITS[v & 0x0f];
+        }
+        return new String(hex);
+    }
+
+    private static final char[] HEX_DIGITS = "0123456789abcdef".toCharArray();
+    static final long MAX_HEX_ECHO_BYTES = 8L * 1024 * 1024;
+
+    /**
      * Create or overwrite a file under {@code /sdcard/} or {@code /saf/}.
      * INVARIANT: refuses the storage root itself; creates missing parent folders.
      */
     JSObject write(JSObject payload) {
         String root = payload != null ? payload.getString("root", "sdcard") : "sdcard";
         String path = payload != null ? payload.getString("path", "/") : "/";
-        String text = payload != null ? payload.getString("text", "") : "";
-        if (text == null) text = "";
         String mime = payload != null ? payload.getString("mimeType", "text/markdown") : "text/markdown";
         if (mime == null || mime.trim().isEmpty()) mime = "text/markdown";
-        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = decodeWritePayload(payload);
         if (bytes.length > MAX_WRITE_BYTES) return fail("storage:write", "too large");
         if ("saf".equals(root)) return writeSaf(path, bytes, mime);
         return writeSdcard(path, bytes);
@@ -746,10 +800,8 @@ public final class CwsStorageHost {
     /** Overwrite a persisted {@code content://} from a previous create-document pick. */
     JSObject writeUri(JSObject payload) {
         String uri = payload != null ? payload.getString("uri", "") : "";
-        String text = payload != null ? payload.getString("text", "") : "";
-        if (text == null) text = "";
         if (uri == null || uri.trim().isEmpty()) return fail("storage:write-uri", "no uri");
-        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = decodeWritePayload(payload);
         if (bytes.length > MAX_WRITE_BYTES) return fail("storage:write-uri", "too large");
         return writeBytesToUri(Uri.parse(uri.trim()), bytes, "storage:write-uri");
     }
@@ -1320,13 +1372,19 @@ public final class CwsStorageHost {
         echo.put("size", knownSize > 0 ? knownSize : bytes.length);
         String lowerName = name != null ? name.toLowerCase() : "";
         boolean binary = looksLikeBinary(type, lowerName, bytes);
-        /* WHY: data: base64 freezes Capacitor — Document always takes UTF-8 `content`. */
+        /* WHY: data: base64 freezes Capacitor. Text stays UTF-8; binary is compact hex. */
         if (!binary) {
             String utf8 = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
             echo.put("text", utf8);
             echo.put("content", utf8);
         } else {
+            echo.put("binary", true);
             echo.put("error", "binary");
+            if (bytes.length <= MAX_HEX_ECHO_BYTES) {
+                echo.put("hex", encodeCompactHex(bytes));
+            } else {
+                echo.put("error", "too large");
+            }
         }
     }
 

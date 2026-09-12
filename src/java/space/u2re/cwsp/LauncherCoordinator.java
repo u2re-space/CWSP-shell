@@ -2387,10 +2387,19 @@ public final class LauncherCoordinator {
             File disk = pendingShareFile(ctx);
             if (disk != null && disk.isFile() && disk.length() > 0) {
                 hasFile = true;
-                /* WHY: Binder data: URLs drop in Document WebView — send UTF-8 here. */
-                if (disk.length() <= 256L * 1024) {
-                    String body = readShareFileUtf8(disk);
-                    if (body != null && !body.isEmpty()) echo.put("content", body);
+                String mime = firstPinString(share, "mime");
+                String name = firstPinString(share, "name");
+                if (name.isEmpty()) name = firstPinString(share, "title");
+                byte[] bytes = readShareFileBytes(disk);
+                boolean text = isTextShare(mime, name, url);
+                if (text) {
+                    /* WHY: Binder data: URLs drop in Document WebView — send UTF-8 here. */
+                    if (bytes != null && bytes.length > 0 && bytes.length <= 256L * 1024) {
+                        echo.put("content", new String(bytes, StandardCharsets.UTF_8));
+                    }
+                } else if (bytes != null && bytes.length > 0 && bytes.length <= CwsStorageHost.MAX_HEX_ECHO_BYTES) {
+                    echo.put("hex", CwsStorageHost.encodeCompactHex(bytes));
+                    echo.put("binary", true);
                 }
             }
             echo.put("hasFile", hasFile);
@@ -2401,7 +2410,7 @@ public final class LauncherCoordinator {
         return r;
     }
 
-    private static boolean isTextShare(String mime, String name, String url) {
+    static boolean isTextShare(String mime, String name, String url) {
         String m = mime != null ? mime.toLowerCase() : "";
         if (m.startsWith("text/") || m.contains("markdown") || m.contains("json") || m.contains("xml")) {
             return true;
@@ -2433,6 +2442,40 @@ public final class LauncherCoordinator {
         if (disk == null || !disk.isFile() || disk.length() <= 0) return "";
         String body = readShareFileUtf8(disk);
         return body != null ? body : "";
+    }
+
+    static byte[] pendingShareBytes(Context ctx) {
+        return readShareFileBytes(pendingShareFile(ctx));
+    }
+
+    private static byte[] readShareFileBytes(File disk) {
+        if (disk == null || !disk.isFile() || disk.length() <= 0) return null;
+        FileInputStream in = null;
+        try {
+            in = new FileInputStream(disk);
+            byte[] bytes = new byte[(int) disk.length()];
+            int off = 0;
+            while (off < bytes.length) {
+                int n = in.read(bytes, off, bytes.length - off);
+                if (n < 0) break;
+                off += n;
+            }
+            if (off != bytes.length) {
+                byte[] slim = new byte[off];
+                System.arraycopy(bytes, 0, slim, 0, off);
+                return slim;
+            }
+            return bytes;
+        } catch (Exception e) {
+            Log.w(TAG, "readShareFileBytes failed", e);
+            return null;
+        } finally {
+            try {
+                if (in != null) in.close();
+            } catch (Exception ignored) {
+                /* ignore */
+            }
+        }
     }
 
     private static String readShareFileUtf8(File disk) {
