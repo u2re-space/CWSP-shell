@@ -721,16 +721,26 @@ public class MainActivity extends BridgeActivity {
 
         if (Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action)) {
             String type = intent.getType();
-            if (type != null && type.startsWith("text/")) {
-                String text = intent.getStringExtra(Intent.EXTRA_TEXT);
-                String subject = intent.getStringExtra(Intent.EXTRA_SUBJECT);
-                String title = intent.getStringExtra(Intent.EXTRA_TITLE);
-                String url = firstUrl(text);
-                if (url == null || url.isEmpty()) url = firstUrl(subject);
-                if (url == null || url.isEmpty()) return null;
-                return pinPayload(url, firstNonEmpty(title, subject), text, "share");
+            String tl = type != null ? type.toLowerCase(Locale.US) : "";
+            boolean textish = tl.isEmpty() || tl.startsWith("text/") || "*/*".equals(tl);
+            if (!textish) return null;
+            String text = intent.getStringExtra(Intent.EXTRA_TEXT);
+            String subject = intent.getStringExtra(Intent.EXTRA_SUBJECT);
+            String title = intent.getStringExtra(Intent.EXTRA_TITLE);
+            String url = firstUrl(text);
+            if (url == null || url.isEmpty()) url = firstUrl(subject);
+            if (url == null || url.isEmpty()) url = urlFromClip(intent);
+            if (url == null || url.isEmpty()) {
+                Uri data = intent.getData();
+                if (data != null) {
+                    String scheme = data.getScheme();
+                    if (scheme != null && ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
+                        url = data.toString();
+                    }
+                }
             }
-            return null;
+            if (url == null || url.isEmpty()) return null;
+            return pinPayload(url, firstNonEmpty(title, subject), text, "share");
         }
 
         if (Intent.ACTION_VIEW.equals(action)) {
@@ -766,6 +776,27 @@ public class MainActivity extends BridgeActivity {
             return "https://" + s;
         }
         return s;
+    }
+
+    /** Chrome often puts the page URL on ClipData instead of EXTRA_TEXT. */
+    private static String urlFromClip(Intent intent) {
+        if (intent == null) return null;
+        android.content.ClipData clip = intent.getClipData();
+        if (clip == null) return null;
+        for (int i = 0; i < clip.getItemCount(); i++) {
+            android.content.ClipData.Item item = clip.getItemAt(i);
+            if (item == null) continue;
+            CharSequence text = item.getText();
+            String fromText = firstUrl(text != null ? text.toString() : null);
+            if (fromText != null && !fromText.isEmpty()) return fromText;
+            Uri uri = item.getUri();
+            if (uri == null) continue;
+            String scheme = uri.getScheme();
+            if (scheme != null && ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
+                return uri.toString();
+            }
+        }
+        return null;
     }
 
     private static String firstUrl(String raw) {

@@ -231,6 +231,56 @@ export async function launcherIcon(
     return `data:${mime};base64,${base64}`;
 }
 
+export type LauncherIconBatchRequest = {
+    key: string;
+    kind: "app" | "shortcut";
+    packageName: string;
+    shortcutId?: string;
+    size?: number;
+    variant?: string;
+    pack?: string;
+    drawable?: string;
+};
+
+/**
+ * PERF: one bridge round-trip for a visible grid. Older hosts return ok:false and
+ * the caller fetches icons one at a time.
+ */
+export async function launcherIcons(
+    items: LauncherIconBatchRequest[]
+): Promise<Array<{ key: string; dataUrl: string }>> {
+    const batch = items.filter((item) => String(item?.packageName || "").trim());
+    if (!batch.length) return [];
+    const r = await invokeCwsPlatformIPC({
+        channel: "launcher:icons",
+        payload: { items: batch }
+    });
+    if (!r.ok) return [];
+    const echo = r.echo as { icons?: unknown } | undefined;
+    const raw = echo?.icons ?? (r as { icons?: unknown }).icons;
+    const rows = Array.isArray(raw)
+        ? raw
+        : raw && typeof raw === "object"
+            ? Object.keys(raw as Record<string, unknown>)
+                .filter((key) => /^\d+$/.test(key))
+                .sort((a, b) => Number(a) - Number(b))
+                .map((key) => (raw as Record<string, unknown>)[key])
+            : [];
+    const out: Array<{ key: string; dataUrl: string }> = [];
+    for (const row of rows) {
+        if (!row || typeof row !== "object") continue;
+        const rec = row as { key?: string; ok?: boolean; mime?: string; base64?: string };
+        const base64 = String(rec.base64 || "").trim();
+        if (rec.ok === false || !base64) continue;
+        const mime = String(rec.mime || "image/png").trim() || "image/png";
+        out.push({
+            key: String(rec.key || ""),
+            dataUrl: `data:${mime};base64,${base64}`
+        });
+    }
+    return out;
+}
+
 /** Which adaptive / Material You variants PackageManager can supply for this package. */
 export async function launcherIconVariants(cacheKey: string): Promise<LauncherIconVariantInfo[]> {
     const key = String(cacheKey || "").trim();

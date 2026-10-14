@@ -58,15 +58,72 @@
         })();
     </script>
     <style>
-        html, body { margin: 0; padding: 0; inline-size: 100%; block-size: 100%; overflow: hidden; }
+        html, body { margin: 0; padding: 0; inline-size: 100%; block-size: 100%; overflow: hidden; background-color: #121418; }
         #app {
             display: grid; place-items: center; inline-size: 100%; block-size: 100%;
-            min-block-size: 100dvb; font-family: system-ui, sans-serif; background: #121418; color: #e8e8e8;
+            min-block-size: 100dvb; background-color: transparent;
         }
     </style>
 </head>
 <body>
-    <div id="app">Loading CWSP-shell…</div>
+    <div id="app"></div>
+    <script>
+        /* WHY: a custom photo must paint before the bundled file. IDB bytes are also
+         * stored in Cache `cwsp-user-wallpaper` and served by InstallEvent.addRoutes
+         * at `/assets/user-wallpaper` before the service worker starts. */
+        (function () {
+            var STOCK = "/assets/wallpaper.jpg";
+            var USER = "/assets/user-wallpaper";
+            var pointer = "";
+            try { pointer = String(localStorage.getItem("rs-wallpaper-image") || "").trim(); } catch (e) {}
+            var custom = pointer && pointer !== STOCK && pointer.indexOf("blob:") !== 0;
+            function paint(url) {
+                document.documentElement.style.backgroundColor = "#121418";
+                document.documentElement.style.backgroundImage = "url('" + url + "')";
+                document.documentElement.style.backgroundPosition = "center";
+                document.documentElement.style.backgroundSize = "cover";
+                document.documentElement.style.backgroundRepeat = "no-repeat";
+            }
+            function preload(url) {
+                var link = document.createElement("link");
+                link.rel = "preload";
+                link.as = "image";
+                link.href = url;
+                try { link.fetchPriority = "high"; } catch (e) {}
+                document.head.appendChild(link);
+            }
+            if (!custom) {
+                preload(STOCK);
+                paint(STOCK);
+                return;
+            }
+            if (pointer.indexOf("idb:") === 0) {
+                preload(USER);
+                paint(USER);
+                try {
+                    var open = indexedDB.open("cwsp-wallpaper-v1", 1);
+                    open.onsuccess = function () {
+                        var db = open.result;
+                        if (!db.objectStoreNames.contains("blobs")) return;
+                        var get = db.transaction("blobs", "readonly").objectStore("blobs").get("current");
+                        get.onsuccess = function () {
+                            var blob = get.result;
+                            if (!(blob instanceof Blob) || !blob.size) return;
+                            paint(URL.createObjectURL(blob));
+                        };
+                    };
+                } catch (e) {}
+                return;
+            }
+            if (pointer.indexOf("data:image/") === 0 || pointer.charAt(0) === "/" || pointer.indexOf("http") === 0) {
+                preload(pointer);
+                paint(pointer);
+                return;
+            }
+            preload(STOCK);
+            paint(STOCK);
+        })();
+    </script>
     <script>
         // WHY: /markdown is a host alias for viewer; stamp ?view= before the SPA boots.
         (function () {

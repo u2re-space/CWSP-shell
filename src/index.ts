@@ -13,16 +13,16 @@ import { initializeLayers } from "shared/routing/layer-manager";
 import { pickEnabledView } from "shared/routing/views";
 import { ensureVirtualKeyboardOverlay, loadAsAdopted } from "@fest-lib/dom";
 import { ensureAppLayers } from "shared/routing/app-layers";
+import { ensureCwspSkuFromLocation } from "com/config/ecosystem-skus";
 
-// Import PWA handlers
-import {
-    ensureAppCss,
-    initServiceWorker,
-    initReceivers,
-    handleShareTarget,
-    setupLaunchQueueConsumer,
-    checkPendingShareData
-} from "core/pwa/sw-handling";
+/* WHY: `sw-handling` statically imports lur.e, which lives in `com/app.js` (~8MB).
+ * A static import here keeps the white boot spinner up until that graph evaluates. */
+
+try {
+    ensureCwspSkuFromLocation();
+} catch {
+    /* non-DOM */
+}
 
 ensureVirtualKeyboardOverlay();
 
@@ -67,41 +67,34 @@ const isPwaDisplayMode = (): boolean => {
 // LOADING STATE MANAGEMENT
 // ============================================================================
 
-const setLoadingState = (mountElement: HTMLElement, message: string = "Loading...") => {
-    mountElement.innerHTML = `
-        <div class="app-loading" style="
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            inline-size: 100%;
-            block-size: 100%;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 1.1rem;
-            color: #666;
-            background: #fff;
-            position: absolute;
-            inset: 0;
-            z-index: 10000;
-        ">
-            <div class="loading-spinner" style="
-                inline-size: 32px;
-                block-size: 32px;
-                border: 3px solid #f3f3f3;
-                border-top: 3px solid #007acc;
-                border-radius: 50%;
-                animation: spin 1s linear infinite;
-                margin-bottom: 1rem;
-            "></div>
-            <div class="loading-text">${message}</div>
-            <style>
-                @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-            </style>
-        </div>
-    `;
+/** Wallpaper under the shell. A stored custom photo wins over the bundled file. */
+const revealBootSurface = (mountElement: HTMLElement): void => {
+    mountElement.replaceChildren();
+    const painted = document.documentElement.style.backgroundImage || "";
+    if (painted && !painted.includes("/assets/wallpaper.jpg")) {
+        mountElement.style.background = "transparent";
+        return;
+    }
+    let pointer = "";
+    try {
+        pointer = String(localStorage.getItem("rs-wallpaper-image") || "").trim();
+    } catch {
+        pointer = "";
+    }
+    const stock = "/assets/wallpaper.jpg";
+    const custom = pointer && pointer !== stock && !pointer.startsWith("blob:");
+    const url = !custom
+        ? stock
+        : pointer.startsWith("idb:")
+            ? "/assets/user-wallpaper"
+            : pointer.startsWith("data:image/") || pointer.startsWith("/") || pointer.startsWith("http")
+                ? pointer
+                : stock;
+    document.documentElement.style.backgroundColor = "#121418";
+    document.documentElement.style.backgroundImage = `url("${url}")`;
+    document.documentElement.style.backgroundPosition = "center";
+    document.documentElement.style.backgroundSize = "cover";
+    document.documentElement.style.backgroundRepeat = "no-repeat";
 };
 
 const clearLoadingState = (mountElement: HTMLElement) => {
@@ -198,33 +191,36 @@ const withTimeout = async <T>(
 // ============================================================================
 
 export default async function index(mountElement: HTMLElement) {
+    /* WHY: drop the HTML/white boot label before any await. Wallpaper is already in the document. */
+    revealBootSurface(mountElement);
     // CRITICAL: Initialize CSS layer hierarchy FIRST
     // This must happen before any styles are loaded
     initializeLayers();
 
-    // WHY: Keep `shells/boot` off the static graph of this module so `html-boot` can `import(index.ts)`
-    // quickly over slow LAN / reverse-proxy dev — the barrel pulls registry + BootLoader + routing.
-    const viewMod = await import("boot/ts/views.scss?inline");
-    await loadAsAdopted(viewMod.default);
-
-    //
     console.log('[Index] Starting CWSP-shell frontend loader');
 
-    // Initialize uniform channel manager
-    console.log('[Index] Initializing uniform channels...');
-    //initializeAppChannels();
-    /* Hub CWSP socket: gated by Settings → shell.maintainHubSocketConnection (default off).
-     * {@link BootLoader} calls applyHubSocketFromSettings after loadSettings — avoid duplicate preload here. */
-
-    setLoadingState(mountElement, 'Initializing CWSP-shell...');
-
     try {
+        // WHY: Keep `shells/boot` and `sw-handling` off the static graph so the wallpaper
+        // paints before `com/app.js` evaluates.
+        const [viewMod, sw, boot] = await Promise.all([
+            import("boot/ts/views.scss?inline"),
+            import("core/pwa/sw-handling"),
+            import("shells/boot"),
+        ]);
+        await loadAsAdopted(viewMod.default);
+        const {
+            ensureAppCss,
+            initReceivers,
+            handleShareTarget,
+            setupLaunchQueueConsumer,
+            checkPendingShareData,
+        } = sw;
         const {
             loadSubAppWithShell,
             VALID_VIEWS,
             getShellFromQuery,
             getSavedShellPreference
-        } = await import("shells/boot");
+        } = boot;
 
         const VIEW_PATH_ALIASES: Record<string, ViewId> = {
             markdown: "viewer",
@@ -246,9 +242,8 @@ export default async function index(mountElement: HTMLElement) {
         // Initialize PWA features (non-blocking)
         const pwaPromise = initPWA();
 
-        // Load CSS (non-extension only)
+        // Load CSS (non-extension only). Built HTML already links crossword.css.
         if (!isExtension()) {
-            setLoadingState(mountElement, 'Loading styles...');
             await ensureAppCss();
         }
 
@@ -256,23 +251,25 @@ export default async function index(mountElement: HTMLElement) {
         initReceivers();
         handleShareTarget();
         // SW is initialized by initPWA(); avoid dual SW managers causing update loops.
-        // Keep pre-shell work short so the shell spinner / first paint stays < ~3s on slow devices.
+        // Share payload must land before navigate; a normal home boot must not wait on it.
         const PRE_SHELL_BUDGET_MS = 1200;
-        try {
-            await Promise.race([
-                Promise.all([
-                    withTimeout(setupLaunchQueueConsumer(), "setupLaunchQueueConsumer", PRE_SHELL_BUDGET_MS, undefined),
-                    withTimeout(checkPendingShareData(), "checkPendingShareData", PRE_SHELL_BUDGET_MS, null)
-                ]),
-                new Promise<void>((r) => globalThis.setTimeout(r, PRE_SHELL_BUDGET_MS))
-            ]);
-        } catch (e) {
+        const shareBeforeShell = /share[-_]target/i.test(String(location.pathname || ""))
+            || /(?:^|[?&])shared=1(?:&|$)/.test(String(location.search || ""));
+        const preShell = Promise.race([
+            Promise.all([
+                withTimeout(setupLaunchQueueConsumer(), "setupLaunchQueueConsumer", PRE_SHELL_BUDGET_MS, undefined),
+                withTimeout(checkPendingShareData(), "checkPendingShareData", PRE_SHELL_BUDGET_MS, null)
+            ]),
+            new Promise<void>((r) => globalThis.setTimeout(r, PRE_SHELL_BUDGET_MS))
+        ]).catch((e) => {
             console.warn("[Index] Pre-boot share/launch queue failed:", e);
-        }
+        });
+        if (shareBeforeShell) await preShell;
+        else void preShell;
 
-        // Warm viewer markdown engine chunk early when route targets viewer (non-blocking).
+        // Warm viewer markdown engine chunk early when the route is the document view.
         const prePath = getNormalizedPathname();
-        if (!prePath || prePath === "viewer" || prePath === "share-target" || prePath === "share_target") {
+        if (prePath === "viewer" || prePath === "markdown" || prePath === "document" || prePath === "share-target" || prePath === "share_target") {
             // WHY: Vite emits `__vitePreload(...).catch`. A stale com/app.js letter
             // (GLitElement) returns a class — that TypeError is sync and kills index().
             void (async () => {

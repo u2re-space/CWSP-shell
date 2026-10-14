@@ -219,7 +219,7 @@
     ],
     "handle_links": "preferred",
     "launch_handler": {
-        "client_mode": "navigate-new"
+        "client_mode": "focus-existing"
     },
     "orientation": "any",
     "edge_side": "left",

@@ -5,6 +5,45 @@
     <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, viewport-fit=cover, interactive-widget=overlays-content, shrink-to-fit=no" />
     <meta name="color-scheme" content="light dark" />
     <title>CW-i1</title>
+    <link rel="preload" as="image" href="/assets/wallpaper.jpg" fetchpriority="high" id="cwsp-stock-wallpaper" />
+    <style>
+      html[data-cwsp-wallpaper-poster] {
+        background: #101114 url("/assets/wallpaper.jpg") center / cover no-repeat;
+      }
+    </style>
+    <script>
+      try {
+        var STOCK = "/assets/wallpaper.jpg";
+        var USER = "/assets/user-wallpaper";
+        var pointer = String(localStorage.getItem("rs-wallpaper-image") || "").trim();
+        var custom = pointer && pointer !== STOCK && pointer.indexOf("blob:") !== 0;
+        var preload = document.getElementById("cwsp-stock-wallpaper");
+        function paint(url) {
+          document.documentElement.style.background = "#101114 url('" + url + "') center / cover no-repeat";
+        }
+        if (!custom) {
+          document.documentElement.setAttribute("data-cwsp-wallpaper-poster", "");
+        } else if (preload && preload.parentNode) {
+          preload.parentNode.removeChild(preload);
+          if (pointer.indexOf("idb:") === 0) {
+            paint(USER);
+            var open = indexedDB.open("cwsp-wallpaper-v1", 1);
+            open.onsuccess = function () {
+              var db = open.result;
+              if (!db.objectStoreNames.contains("blobs")) return;
+              var get = db.transaction("blobs", "readonly").objectStore("blobs").get("current");
+              get.onsuccess = function () {
+                var blob = get.result;
+                if (!(blob instanceof Blob) || !blob.size) return;
+                paint(URL.createObjectURL(blob));
+              };
+            };
+          } else if (pointer.indexOf("data:image/") === 0 || pointer.charAt(0) === "/" || pointer.indexOf("http") === 0) {
+            paint(pointer);
+          }
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <script type="module" src="./entry.ts"></script>

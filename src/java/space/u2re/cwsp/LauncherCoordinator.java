@@ -50,6 +50,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -64,7 +65,17 @@ public final class LauncherCoordinator {
     private static final String TAG = "LauncherCoordinator";
 
     private static final int MAX_SHORTCUT_ICON_CACHE = 48;
+    private static final int MAX_APP_ICON_CACHE = 128;
     private static final Object SHORTCUT_ICON_LOCK = new Object();
+    private static final Object APP_ICON_LOCK = new Object();
+    /** PERF: encoded PNGs for the grid. Disk copy survives process death. */
+    private static final LinkedHashMap<String, byte[]> APP_ICON_PNG =
+            new LinkedHashMap<String, byte[]>(32, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, byte[]> eldest) {
+                    return size() > MAX_APP_ICON_CACHE;
+                }
+            };
     private static final LinkedHashMap<String, byte[]> SHORTCUT_ICON_PNG =
             new LinkedHashMap<String, byte[]>(16, 0.75f, true) {
                 @Override
@@ -140,6 +151,124 @@ public final class LauncherCoordinator {
         r.put("mime", "image/png");
         r.put("base64", b64);
         return r;
+    }
+
+    private static long packageUpdatedAt(Context ctx, String pkg) {
+        if (ctx == null || pkg == null || pkg.isEmpty()) return 0L;
+        try {
+            PackageInfo info = ctx.getPackageManager().getPackageInfo(pkg, 0);
+            return info.lastUpdateTime;
+        } catch (Exception ignored) {
+            return 0L;
+        }
+    }
+
+    private static String appIconCacheKey(
+            Context ctx, String pkg, int size, String variant, String pack, String drawable) {
+        String target = pkg != null ? pkg : "";
+        String packPkg = pack != null ? pack : "";
+        String draw = drawable != null ? drawable : "";
+        String v = variant != null ? variant : "default";
+        return "app\0" + target + "\0" + size + "\0" + v + "\0" + packPkg + "\0" + draw
+                + "\0" + packageUpdatedAt(ctx, target)
+                + "\0" + (packPkg.isEmpty() ? 0L : packageUpdatedAt(ctx, packPkg));
+    }
+
+    private static String shortcutIconDiskKey(Context ctx, String pkg, String id, int size) {
+        return "shortcut\0" + pkg + "\0" + id + "\0" + size + "\0" + packageUpdatedAt(ctx, pkg);
+    }
+
+    private static String iconPngFileName(String key) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] dig = md.digest(key.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(dig.length * 2);
+            for (byte b : dig) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+                sb.append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return Integer.toHexString(key.hashCode());
+        }
+    }
+
+    private static File iconPngFile(Context ctx, String key) {
+        File dir = new File(ctx.getCacheDir(), "cwsp-icon-png");
+        if (!dir.isDirectory() && !dir.mkdirs()) return null;
+        return new File(dir, iconPngFileName(key) + ".png");
+    }
+
+    private static byte[] readIconDisk(Context ctx, String key) {
+        if (ctx == null || key == null || key.isEmpty()) return null;
+        File file = iconPngFile(ctx, key);
+        if (file == null || !file.isFile()) return null;
+        long len = file.length();
+        if (len <= 0 || len > 512 * 1024) return null;
+        if (System.currentTimeMillis() - file.lastModified() > 7L * 24 * 60 * 60 * 1000L) {
+            file.delete();
+            return null;
+        }
+        byte[] data = new byte[(int) len];
+        try (FileInputStream in = new FileInputStream(file)) {
+            int off = 0;
+            while (off < data.length) {
+                int n = in.read(data, off, data.length - off);
+                if (n < 0) return null;
+                off += n;
+            }
+            return data;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static void writeIconDisk(Context ctx, String key, byte[] png) {
+        if (ctx == null || png == null || png.length == 0) return;
+        File file = iconPngFile(ctx, key);
+        if (file == null) return;
+        File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
+        try (FileOutputStream out = new FileOutputStream(tmp)) {
+            out.write(png);
+            out.flush();
+        } catch (Exception e) {
+            tmp.delete();
+            return;
+        }
+        if (!tmp.renameTo(file)) {
+            file.delete();
+            if (!tmp.renameTo(file)) tmp.delete();
+        }
+    }
+
+    private static JSObject takeCachedIconPng(Context ctx, String channel, String key) {
+        if (key == null || key.isEmpty()) return null;
+        byte[] png;
+        synchronized (APP_ICON_LOCK) {
+            png = APP_ICON_PNG.get(key);
+        }
+        if (png == null) png = readIconDisk(ctx, key);
+        if (png == null || png.length == 0) return null;
+        synchronized (APP_ICON_LOCK) {
+            APP_ICON_PNG.put(key, png);
+        }
+        return pngResult(channel, key, png);
+    }
+
+    private static void rememberIconPng(Context ctx, String key, JSObject encoded) {
+        if (encoded == null || !encoded.getBoolean("ok", false) || key == null || key.isEmpty()) return;
+        String b64 = encoded.getString("base64", "");
+        if (b64 == null || b64.isEmpty()) return;
+        try {
+            byte[] png = Base64.decode(b64, Base64.NO_WRAP);
+            if (png == null || png.length == 0) return;
+            synchronized (APP_ICON_LOCK) {
+                APP_ICON_PNG.put(key, png);
+            }
+            writeIconDisk(ctx, key, png);
+        } catch (Exception e) {
+            Log.w(TAG, "rememberIconPng failed", e);
+        }
     }
 
     private static void rememberShortcutPng(String pkg, String id, JSObject encoded) {
@@ -639,14 +768,16 @@ public final class LauncherCoordinator {
         int size = sizePx != null ? sizePx : 96;
         if (size < 16) size = 16;
         if (size > 512) size = 512;
+        String diskKey = shortcutIconDiskKey(ctx, pkg, id, size);
         try {
             synchronized (SHORTCUT_ICON_LOCK) {
                 byte[] cached = SHORTCUT_ICON_PNG.get(shortcutIconCacheKey(pkg, id));
                 if (cached != null && cached.length > 0) {
-                    Log.i(TAG, "shortcutIcon cache-hit pkg=" + pkg + " id=" + id);
                     return pngResult("launcher:shortcut-icon", pkg + "/" + id, cached);
                 }
             }
+            JSObject diskHit = takeCachedIconPng(ctx, "launcher:shortcut-icon", diskKey);
+            if (diskHit != null) return diskHit;
             LauncherApps launcherApps =
                     (LauncherApps) ctx.getSystemService(Context.LAUNCHER_APPS_SERVICE);
             if (launcherApps == null) {
@@ -675,6 +806,7 @@ public final class LauncherCoordinator {
                 return fail("launcher:shortcut-icon", "encode-failed");
             }
             rememberShortcutPng(pkg, id, encoded);
+            rememberIconPng(ctx, diskKey, encoded);
             encoded.put("channel", "launcher:shortcut-icon");
             return encoded;
         } catch (Exception e) {
@@ -727,7 +859,15 @@ public final class LauncherCoordinator {
         String pkg = packageName != null ? packageName.trim() : "";
         String pack = iconPackPackage != null ? iconPackPackage.trim() : "";
         String drawable = drawableName != null ? drawableName.trim() : "";
+        int size = sizePx != null ? sizePx : 96;
+        if (size < 16) size = 16;
+        if (size > 512) size = 512;
+        String v = normalizeIconVariant(variant);
+        String cacheKey = appIconCacheKey(ctx, pkg, size, v, pack, drawable);
+        JSObject cached = takeCachedIconPng(ctx, "launcher:icon", cacheKey);
+        if (cached != null) return cached;
         /* Explicit pack drawable — packageName may be target app or the pack itself. */
+        JSObject encoded;
         if (!drawable.isEmpty()) {
             String packPkg = !pack.isEmpty() ? pack : pkg;
             if (packPkg.isEmpty()) {
@@ -737,23 +877,64 @@ public final class LauncherCoordinator {
             if (d == null) {
                 return fail("launcher:icon", "icon-pack-drawable-missing");
             }
-            return encodePackIconFilled(d, pkg.isEmpty() ? packPkg : pkg, sizePx, packPkg, drawable);
-        }
-        if (pkg.isEmpty()) {
+            encoded = encodePackIconFilled(d, pkg.isEmpty() ? packPkg : pkg, size, packPkg, drawable);
+        } else if (pkg.isEmpty()) {
             return fail("launcher:icon", "missing-package");
-        }
-        int size = sizePx != null ? sizePx : 96;
-        if (size < 16) size = 16;
-        if (size > 512) size = 512;
-        if (!pack.isEmpty()) {
+        } else if (!pack.isEmpty()) {
             Drawable themed = IconPackResolver.resolveThemedIcon(ctx, pkg, pack);
             if (themed == null) {
                 return fail("launcher:icon", "icon-pack-unmapped");
             }
-            return encodePackIconFilled(themed, pkg, size, pack, null);
+            encoded = encodePackIconFilled(themed, pkg, size, pack, null);
+        } else {
+            encoded = appIconViaPackageManager(ctx, pkg, size, v);
         }
-        String v = normalizeIconVariant(variant);
-        return appIconViaPackageManager(ctx, pkg, size, v);
+        rememberIconPng(ctx, cacheKey, encoded);
+        return encoded;
+    }
+
+    /** One IPC for a grid of app and shortcut icons. */
+    public static JSObject iconsBatch(Context ctx, JSONArray items) {
+        JSArray out = new JSArray();
+        int n = items == null ? 0 : Math.min(items.length(), 24);
+        for (int i = 0; i < n; i++) {
+            JSONObject item = items.optJSONObject(i);
+            JSObject row = new JSObject();
+            if (item == null) {
+                row.put("ok", false);
+                out.put(row);
+                continue;
+            }
+            String key = item.optString("key", "");
+            String kind = item.optString("kind", "app");
+            JSObject one = "shortcut".equals(kind)
+                    ? shortcutIcon(
+                            ctx,
+                            item.optString("packageName", ""),
+                            item.optString("shortcutId", ""),
+                            item.optInt("size", 96))
+                    : appIcon(
+                            ctx,
+                            item.optString("packageName", ""),
+                            item.optInt("size", 96),
+                            item.optString("variant", "default"),
+                            item.optString("pack", ""),
+                            item.optString("drawable", ""));
+            row.put("key", key);
+            boolean ok = one != null && one.getBoolean("ok", false);
+            row.put("ok", ok);
+            if (ok) {
+                row.put("mime", one.getString("mime", "image/png"));
+                row.put("base64", one.getString("base64", ""));
+            }
+            out.put(row);
+        }
+        JSObject echo = new JSObject();
+        echo.put("icons", out);
+        JSObject result = base(true, "launcher:icons");
+        result.put("echo", echo);
+        result.put("icons", out);
+        return result;
     }
 
     public static JSObject appIcon(
@@ -1872,6 +2053,85 @@ public final class LauncherCoordinator {
         } catch (Exception e) {
             Log.w(TAG, "sendToPackage failed, falling back to VIEW", e);
             return openUri(ctx, uri, packageName, chooser, chooserTitle, mime);
+        }
+    }
+
+    /**
+     * ACTION_SEND_MULTIPLE for a directory share. One URI falls through to {@link #sendToPackage}.
+     */
+    public static JSObject sendManyToPackage(
+            Context ctx,
+            java.util.List<String> rawUris,
+            String title,
+            String packageName,
+            boolean chooser) {
+        if (ctx == null) return fail("launcher:send-to-package", "context-null");
+        java.util.ArrayList<android.net.Uri> uris = new java.util.ArrayList<>();
+        if (rawUris != null) {
+            for (String raw : rawUris) {
+                if (raw == null || raw.trim().isEmpty()) continue;
+                try {
+                    android.net.Uri parsed = android.net.Uri.parse(raw.trim());
+                    if (parsed != null && parsed.getScheme() != null) uris.add(parsed);
+                } catch (Exception ignored) {
+                    /* skip */
+                }
+            }
+        }
+        if (uris.isEmpty()) return fail("launcher:send-to-package", "uri-missing");
+        if (uris.size() == 1) {
+            android.net.Uri only = uris.get(0);
+            String name = only.getLastPathSegment();
+            return sendToPackage(
+                    ctx, only.toString(), name != null ? name : "file", "", packageName, chooser, title);
+        }
+        Intent send = new Intent(Intent.ACTION_SEND_MULTIPLE);
+        send.setType("*/*");
+        send.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+        if (title != null && !title.trim().isEmpty()) {
+            send.putExtra(Intent.EXTRA_TITLE, title.trim());
+            send.putExtra(Intent.EXTRA_SUBJECT, title.trim());
+        }
+        send.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            android.content.ClipData clip = android.content.ClipData.newRawUri("", uris.get(0));
+            for (int i = 1; i < uris.size(); i++) clip.addItem(new android.content.ClipData.Item(uris.get(i)));
+            send.setClipData(clip);
+        } catch (Exception ignored) {
+            /* optional */
+        }
+        String pkg = packageName != null ? packageName.trim() : "";
+        if (!pkg.isEmpty()) {
+            send.setPackage(pkg);
+            for (android.net.Uri uri : uris) {
+                try {
+                    ctx.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (Exception ignored) {
+                    /* ignore */
+                }
+            }
+        }
+        try {
+            Intent launch = send;
+            if (chooser && pkg.isEmpty()) {
+                String label = title != null && !title.trim().isEmpty() ? title.trim() : "Share";
+                launch = Intent.createChooser(send, label);
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            }
+            ctx.startActivity(launch);
+            JSObject echo = new JSObject();
+            echo.put("opened", true);
+            echo.put("sent", true);
+            echo.put("count", uris.size());
+            if (!pkg.isEmpty()) echo.put("packageName", pkg);
+            JSObject r = base(true, "launcher:send-to-package");
+            r.put("echo", echo);
+            return r;
+        } catch (Exception e) {
+            Log.w(TAG, "sendManyToPackage failed", e);
+            return fail("launcher:send-to-package", "send-failed");
         }
     }
 

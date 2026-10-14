@@ -35,6 +35,8 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import org.json.JSONArray;
+
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -424,6 +426,17 @@ public class CwsLauncherBridgePlugin extends Plugin {
                 }
                 Integer size = payload != null ? payload.getInteger("size", 96) : 96;
                 return LauncherCoordinator.shortcutIcon(getContext(), packageName, shortcutId, size);
+            }
+            case "launcher:icons": {
+                JSONArray items = null;
+                if (payload != null) {
+                    try {
+                        items = payload.getJSONArray("items");
+                    } catch (Exception ignored) {
+                        items = null;
+                    }
+                }
+                return LauncherCoordinator.iconsBatch(getContext(), items);
             }
             case "launcher:icon": {
                 String packageName = payload != null ? payload.getString("packageName", "") : "";

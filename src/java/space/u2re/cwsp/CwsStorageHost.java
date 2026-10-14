@@ -641,6 +641,14 @@ public final class CwsStorageHost {
         if (mimeType == null) mimeType = "";
         String title = payload != null ? payload.getString("title", "Share") : "Share";
         if (title == null || title.trim().isEmpty()) title = "Share";
+        String packageName = payload != null ? payload.getString("packageName", "") : "";
+        if (packageName == null) packageName = "";
+        String root = payload != null ? payload.getString("root", "sdcard") : "sdcard";
+        String path = payload != null ? payload.getString("path", "/") : "/";
+        if ("sdcard".equals(root)) {
+            JSObject asDir = shareSdcardDirectory(path, packageName.trim(), title);
+            if (asDir != null) return asDir;
+        }
         JSObject resolved = uri(payload);
         boolean ok = false;
         try {
@@ -664,7 +672,44 @@ public final class CwsStorageHost {
         if (mime == null || mime.isEmpty()) mime = guessMime(name);
         Context ctx = plugin.getContext();
         if (ctx == null) return fail("storage:share", "no context");
-        return LauncherCoordinator.sendToPackage(ctx, uri, name, mime, "", true, title);
+        boolean chooser = packageName.trim().isEmpty();
+        return LauncherCoordinator.sendToPackage(ctx, uri, name, mime, packageName.trim(), chooser, title);
+    }
+
+    /**
+     * One-level ACTION_SEND_MULTIPLE. Returns null when {@code path} is not a directory
+     * so the file share path can run.
+     */
+    private JSObject shareSdcardDirectory(String path, String packageName, String title) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !isAllFilesGranted()) {
+            File base = Environment.getExternalStorageDirectory();
+            File dir = base != null ? resolveUnder(base, path) : null;
+            if (dir != null && dir.isDirectory()) {
+                requestAllFiles();
+                return fail("storage:share", "all-files-required");
+            }
+            return null;
+        }
+        File base = Environment.getExternalStorageDirectory();
+        File dir = base != null ? resolveUnder(base, path) : null;
+        if (dir == null || !dir.isDirectory()) return null;
+        Context ctx = plugin.getContext();
+        if (ctx == null) return fail("storage:share", "no context");
+        File[] kids = dir.listFiles();
+        java.util.ArrayList<String> uris = new java.util.ArrayList<>();
+        if (kids != null) {
+            for (File kid : kids) {
+                if (kid == null || !kid.isFile()) continue;
+                String n = kid.getName();
+                if (n == null || n.startsWith(".")) continue;
+                if (uris.size() >= 40) break;
+                Uri share = shareableFileUri(ctx, kid);
+                if (share != null) uris.add(share.toString());
+            }
+        }
+        if (uris.isEmpty()) return fail("storage:share", "empty directory");
+        boolean chooser = packageName == null || packageName.isEmpty();
+        return LauncherCoordinator.sendManyToPackage(ctx, uris, title, packageName, chooser);
     }
 
     /**

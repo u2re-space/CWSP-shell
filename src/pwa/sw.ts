@@ -48,6 +48,9 @@ import {
     publishSwShareReceived,
     shareLandingPath
 } from "com/routing/pwa/sw-result-wire";
+import { attachSwLifecycle, installShareTargetStaticRoutes, matchCachedUserWallpaper } from "com/routing/pwa/sw-lifecycle";
+
+attachSwLifecycle(self);
 
 const SHARE_LANDING_PATH = shareLandingPath();
 
@@ -2090,6 +2093,7 @@ self.addEventListener?.('install', (e: any) => {
     // Only skipWaiting must block install; offline HTML warmup does network fetches and was
     // serializing 5+ document requests here — that delayed activation and first paint for minutes
     // on slow links while Workbox precache also ran in parallel.
+    installShareTargetStaticRoutes(e);
     const sw = (self as any)?.skipWaiting?.();
     e?.waitUntil?.(sw && typeof sw.then === "function" ? sw : Promise.resolve());
     void warmupOfflineNavigationCache("install");
@@ -2238,6 +2242,16 @@ self.addEventListener?.('fetch', (event: any) => {
     const request = event?.request ?? event?.event?.request ?? event;
     if (!request?.url) return;
     const requestUrl = new URL(request.url);
+    const wallpaperPath = requestUrl.pathname;
+    if (
+        String(request.method || "GET").toUpperCase() === "GET" &&
+        (wallpaperPath === "/assets/user-wallpaper" || wallpaperPath.endsWith("/assets/user-wallpaper"))
+    ) {
+        event?.respondWith?.(
+            matchCachedUserWallpaper(request).then((hit) => hit || fetch(request))
+        );
+        return;
+    }
 
     // Hard fallback for /user/* so requests never escape to backend
     // when Workbox routing order/matching is affected.

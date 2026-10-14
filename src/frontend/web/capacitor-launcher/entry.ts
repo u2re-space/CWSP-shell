@@ -11,6 +11,7 @@ import { installLauncherHomeLifecycle } from "com/routing/native/launcher-home-l
 import { readClipboardTextFromDevice } from "com/routing/native/clipboard-device";
 import {
     launcherIcon,
+    launcherIcons,
     launcherIconPackIcons,
     launcherIconPacks,
     launcherIconVariants,
@@ -35,6 +36,11 @@ import { setLauncherBridgeForSpeedDial } from "fl-ui/speed-dial/action-registry"
 import { setAndroidWidgetBridge } from "fl-ui/speed-dial/widgets";
 
 const enabledViews = ["home", "settings"] as const;
+
+/* PERF: wallpaper bytes overlap shell boot — first Capacitor frame must not wait for CSS. */
+void import("@fest-lib/image")
+    .then((m) => m.warmAppWallpaper?.())
+    .catch(() => undefined);
 
 applyCwspSku("launcher");
 document.documentElement.dataset.cwspShellRole = "launcher";
@@ -74,6 +80,7 @@ setLauncherBridgeForSpeedDial({
     launcherShortcutIcon,
     launcherOpenUri,
     launcherIcon,
+    launcherIcons,
     launcherIconVariants,
     launcherIconPacks,
     launcherIconPackIcons,
@@ -108,6 +115,11 @@ function showBootFailure(error: unknown): void {
 }
 
 installLauncherHomeLifecycle();
+
+/* WHY: cold SEND of a link must pin before BootLoader finishes. PWA share uses addRoutes. */
+void import("boot/capacitor-share-intent")
+    .then((mod) => mod.installCapacitorShareIntentBridge())
+    .catch(() => undefined);
 
 void import("views/settings")
     .then((m) => m.refreshInstalledSiblingSettingsSections?.())
