@@ -15,6 +15,7 @@ import android.os.Build;
 import android.util.Log;
 import android.view.Display;
 import android.view.View;
+import android.view.ViewParent;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
@@ -22,9 +23,14 @@ import android.webkit.WebView;
 
 /**
  * Capacitor / WebView hosts stay at 60 Hz on Android 15+ unless the window
- * and the WebView explicitly request a higher mode (90 / 120 / 144 / 165…).
+ * votes a higher mode before the WebView is created (90 / 120 / 144 / 165…).
  *
- * @see <a href="https://developer.android.com/games/optimize/display-refresh-rate-change">Display refresh rate</a>
+ * INVARIANT: call {@link #applyToWindow} before {@code super.onCreate}.
+ * {@code values-v29} replaces {@code AppTheme.NoActionBar} and must repeat
+ * {@code android:windowIsFrameRatePowerSavingsBalanced=false}.
+ *
+ * WHY: {@code LAYER_TYPE_HARDWARE} on the WebView pins Chromium off display vsync.
+ *
  * @see <a href="https://developer.android.com/develop/ui/views/animations/adaptive-refresh-rate">Adaptive refresh rate</a>
  */
 public final class DisplayRefreshUnlock {
@@ -71,7 +77,14 @@ public final class DisplayRefreshUnlock {
             } catch (Throwable e) {
                 Log.w(TAG, "ARR disable failed", e);
             }
-            requestViewFrameRate(window.getDecorView(), hz);
+            try {
+                window.setFrameRateBoostOnTouchEnabled(true);
+            } catch (Throwable e) {
+                Log.w(TAG, "frame-rate boost failed", e);
+            }
+            /* WHY: getDecorView() before super.onCreate installs decor too early. */
+            View decor = window.peekDecorView();
+            if (decor != null) voteChain(decor, hz);
         }
 
         Log.i(TAG, "display refresh unlock hz=" + hz
@@ -81,11 +94,6 @@ public final class DisplayRefreshUnlock {
     public static void applyToWebView(WebView webView) {
         if (webView == null) return;
         try {
-            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-        } catch (Throwable e) {
-            Log.w(TAG, "WebView hardware layer failed", e);
-        }
-        try {
             WebSettings settings = webView.getSettings();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 settings.setOffscreenPreRaster(true);
@@ -93,7 +101,6 @@ public final class DisplayRefreshUnlock {
         } catch (Throwable e) {
             Log.w(TAG, "WebView settings failed", e);
         }
-        WebViewPlatformFlags.applyToWebView(webView);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
                 webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
@@ -112,7 +119,7 @@ public final class DisplayRefreshUnlock {
         } catch (Throwable ignored) {
             /* keep 120 fallback */
         }
-        requestViewFrameRate(webView, hz);
+        voteChain(webView, hz);
     }
 
     public static float peekMaxRefreshHz(Context context) {
@@ -178,6 +185,16 @@ public final class DisplayRefreshUnlock {
             }
         }
         return bestSame != null ? bestSame : bestAny;
+    }
+
+    /** PERF: the WebView vote does not propagate to parents. */
+    private static void voteChain(View view, float hz) {
+        View current = view;
+        for (int guard = 0; current != null && guard < 8; guard++) {
+            requestViewFrameRate(current, hz);
+            ViewParent parent = current.getParent();
+            current = parent instanceof View ? (View) parent : null;
+        }
     }
 
     private static void requestViewFrameRate(View view, float hz) {

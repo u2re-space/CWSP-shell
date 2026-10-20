@@ -16,5 +16,7 @@
         <item name="android:navigationBarDividerColor">@android:color/transparent</item>
         <item name="android:enforceNavigationBarContrast">false</item>
         <item name="android:enforceStatusBarContrast">false</item>
+        <!-- WHY: this qualifier replaces values/AppTheme.NoActionBar, which opted out of 60 Hz ARR. -->
+        <item name="android:windowIsFrameRatePowerSavingsBalanced">false</item>
     </style>
 </resources>

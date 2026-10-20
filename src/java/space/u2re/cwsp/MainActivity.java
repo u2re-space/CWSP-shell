@@ -59,6 +59,8 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception e) {
             Log.w(TAG, "EdgeToEdge.enable failed", e);
         }
+        /* WHY: WebView latches display Hz inside super.onCreate. */
+        DisplayRefreshUnlock.applyToWindow(this);
         super.onCreate(savedInstanceState);
         hideNativeTitleBar();
         try {
@@ -84,6 +86,7 @@ public class MainActivity extends BridgeActivity {
             if (bridge != null && bridge.getWebView() != null) {
                 bridge.getWebView().setBackgroundColor(Color.TRANSPARENT);
                 DisplayRefreshUnlock.applyToWebView(bridge.getWebView());
+                WebViewPlatformFlags.applyToWebView(bridge.getWebView());
             }
         } catch (Exception e) {
             Log.w(TAG, "transparent WebView failed", e);
@@ -99,6 +102,7 @@ public class MainActivity extends BridgeActivity {
             Bridge bridge = getBridge();
             if (bridge != null && bridge.getWebView() != null) {
                 DisplayRefreshUnlock.applyToWebView(bridge.getWebView());
+                WebViewPlatformFlags.applyToWebView(bridge.getWebView());
                 /* WHY: visibilitychange is not reliable after recents; adopted sheets stay empty. */
                 bridge.eval(
                         "(function(){try{var f=globalThis.__CWSP_THEME_RESUME__;"
