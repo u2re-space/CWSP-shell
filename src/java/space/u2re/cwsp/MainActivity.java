@@ -1,8 +1,8 @@
 /*
  * Filename: MainActivity.java
  * FullPath: apps/CWSP-shell/src/java/space/u2re/cwsp/MainActivity.java
- * Change date and time: 12.24.00_30.08.2026
- * Reason for changes: onResume kicks JS theme/adopted-sheet restore after background.
+ * Change date and time: 12.00.00_21.10.2026
+ * Reason for changes: Sibling SKU APKs keep the native Android nav bar; hub still hides it.
  */
 
 package space.u2re.cwsp;
@@ -138,8 +138,11 @@ public class MainActivity extends BridgeActivity {
 
     /**
      * FIND:navbar
-     * WHY: Transparent 3-button nav still reserves a slab. Hide it (swipe to peek).
-     * Wallpaper stays visible via FLAG_SHOW_WALLPAPER + transparent WebView.
+     * WHY: Sibling SKU APKs (document / process / explorer) keep the OS 3-button / gesture
+     * nav visible — Back / Home / Recents must stay reachable. The launcher hub stays
+     * chromeless (wallpaper via FLAG_SHOW_WALLPAPER + transparent WebView).
+     * INVARIANT: the bar is transparent, so the web layer reserves
+     * `env(safe-area-inset-bottom)` (minimal-shell `.app-shell` padding).
      */
     private void applyTransparentSystemBars() {
         android.view.Window window = getWindow();
@@ -167,13 +170,23 @@ public class MainActivity extends BridgeActivity {
             if (insets != null) {
                 insets.setAppearanceLightStatusBars(false);
                 insets.setAppearanceLightNavigationBars(false);
-                insets.setSystemBarsBehavior(
-                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-                insets.hide(WindowInsetsCompat.Type.navigationBars());
+                if (showsNativeNavBar()) {
+                    insets.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
+                    insets.show(WindowInsetsCompat.Type.navigationBars());
+                } else {
+                    insets.setSystemBarsBehavior(
+                            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    insets.hide(WindowInsetsCompat.Type.navigationBars());
+                }
             }
         } catch (Exception e) {
             Log.w(TAG, "transparent system bars failed", e);
         }
+    }
+
+    /** Sibling SKU APKs show the system nav bar; the launcher hub owns its own chrome. */
+    private static boolean showsNativeNavBar() {
+        return !BuildConfig.CWSP_LAUNCHER_SKU;
     }
 
     @Override
