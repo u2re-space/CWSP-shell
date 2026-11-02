@@ -90,8 +90,10 @@ const revealBootSurface = (mountElement: HTMLElement): void => {
             : pointer.startsWith("data:image/") || pointer.startsWith("/") || pointer.startsWith("http")
                 ? pointer
                 : stock;
-    document.documentElement.style.backgroundColor = "#121418";
-    document.documentElement.style.backgroundImage = `url("${url}")`;
+    //document.documentElement.style.backgroundColor = "#121418";
+    //document.documentElement.style.backgroundImage = `url("${url}")`;
+    document.documentElement.style.backgroundColor = "transparent";
+    document.documentElement.style.backgroundImage = "none";
     document.documentElement.style.backgroundPosition = "center";
     document.documentElement.style.backgroundSize = "cover";
     document.documentElement.style.backgroundRepeat = "no-repeat";
@@ -122,7 +124,7 @@ const showErrorState = (mountElement: HTMLElement, error: any, retryFn?: () => v
             padding: 2rem;
             font-family: system-ui, sans-serif;
             text-align: center;
-            background: #fff;
+            background: transparent;
             color: #333;
         ">
             <div style="font-size: 3rem; margin-bottom: 1rem;">⚠️</div>

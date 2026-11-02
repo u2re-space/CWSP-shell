@@ -7,8 +7,22 @@
     <title>CW-i1</title>
     <link rel="preload" as="image" href="/assets/wallpaper.jpg" fetchpriority="high" id="cwsp-stock-wallpaper" />
     <style>
+      html {
+        background-color: transparent !important;
+      }
+
+      ion-content {
+        --background: transparent;
+      }
+
+      ion-app {
+        background: transparent;
+      }
+
       html[data-cwsp-wallpaper-poster] {
-        background: #101114 url("/assets/wallpaper.jpg") center / cover no-repeat;
+        /*background: #101114 url("/assets/wallpaper.jpg") center / cover no-repeat;*/
+        background: transparent;
+        background-color: transparent;
       }
     </style>
     <script>
@@ -19,7 +33,9 @@
         var custom = pointer && pointer !== STOCK && pointer.indexOf("blob:") !== 0;
         var preload = document.getElementById("cwsp-stock-wallpaper");
         function paint(url) {
-          document.documentElement.style.background = "#101114 url('" + url + "') center / cover no-repeat";
+          document.documentElement.style.backgroundColor = "transparent";
+          document.documentElement.style.backgroundImage = "none";
+          //document.documentElement.style.background = "#101114 url('" + url + "') center / cover no-repeat";
         }
         if (!custom) {
           document.documentElement.setAttribute("data-cwsp-wallpaper-poster", "");

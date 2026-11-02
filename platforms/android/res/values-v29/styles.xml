@@ -18,5 +18,9 @@
         <item name="android:enforceStatusBarContrast">false</item>
         <!-- WHY: this qualifier replaces values/AppTheme.NoActionBar, which opted out of 60 Hz ARR. -->
         <item name="android:windowIsFrameRatePowerSavingsBalanced">false</item>
+
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+        <item name="android:windowIsTranslucent">true</item>
     </style>
 </resources>

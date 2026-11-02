@@ -73,6 +73,13 @@ public class MainActivity extends BridgeActivity {
         }
         installLauncherBackHandler();
         handleIncomingIntent(getIntent());
+
+        try {
+            this.bridge.getWebView().setBackgroundColor(Color.TRANSPARENT);
+            this.bridge.getWebView().getRootView().setBackgroundColor(Color.TRANSPARENT);
+        } catch (Exception e) {
+            Log.w(TAG, "transparent window failed", e);
+        }
     }
 
     @Override
@@ -90,6 +97,12 @@ public class MainActivity extends BridgeActivity {
             }
         } catch (Exception e) {
             Log.w(TAG, "transparent WebView failed", e);
+        }
+
+        try {
+            this.bridge.getWebView().getRootView().setBackgroundColor(Color.TRANSPARENT);
+        } catch (Exception e) {
+            Log.w(TAG, "transparent window failed", e);
         }
     }
 

@@ -58,7 +58,7 @@
         })();
     </script>
     <style>
-        html, body { margin: 0; padding: 0; inline-size: 100%; block-size: 100%; overflow: hidden; background-color: #121418; }
+        html, body { margin: 0; padding: 0; inline-size: 100%; block-size: 100%; overflow: hidden; background-color: transparent; }
         #app {
             display: grid; place-items: center; inline-size: 100%; block-size: 100%;
             min-block-size: 100dvb; background-color: transparent;
@@ -78,8 +78,10 @@
             try { pointer = String(localStorage.getItem("rs-wallpaper-image") || "").trim(); } catch (e) {}
             var custom = pointer && pointer !== STOCK && pointer.indexOf("blob:") !== 0;
             function paint(url) {
-                document.documentElement.style.backgroundColor = "#121418";
-                document.documentElement.style.backgroundImage = "url('" + url + "')";
+                document.documentElement.style.backgroundColor = "transparent";
+                document.documentElement.style.backgroundImage = "none";
+                //document.documentElement.style.backgroundColor = "#121418";
+                //document.documentElement.style.backgroundImage = "url('" + url + "')";
                 document.documentElement.style.backgroundPosition = "center";
                 document.documentElement.style.backgroundSize = "cover";
                 document.documentElement.style.backgroundRepeat = "no-repeat";
