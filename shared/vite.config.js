@@ -85,6 +85,16 @@ const servePwaSrcAsDistPlugin = (appRoot) => ({
                 res.end(readFileSync(fp));
                 return;
             }
+            // WHY: fest/image wallpaper pointer is `/assets/wallpaper.jpg` — in dev there is
+            // no static copy, so the canvas fetch 404s and no wallpaper is painted.
+            if (pathname === "/assets/wallpaper.jpg" || pathname === "/assets/stock.jpg") {
+                const fp = resolve(appRoot, "assets", pathname.slice("/assets/".length));
+                if (!existsSync(fp)) return next();
+                res.setHeader("Content-Type", "image/jpeg");
+                res.setHeader("Cache-Control", "no-store");
+                res.end(readFileSync(fp));
+                return;
+            }
             next();
         });
     }
@@ -610,6 +620,14 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
                       { src: resolve(__dirname, "./src/pwa/icons/maskable.png"), dest: resolve(__dirname, "./dist/pwa/icons/") },
                       { src: resolve(__dirname, "./src/pwa/screenshots/wide.png"), dest: resolve(__dirname, "./dist/pwa/screenshots/") },
                       { src: resolve(__dirname, "./src/pwa/screenshots/mobile.png"), dest: resolve(__dirname, "./dist/pwa/screenshots/") },
+                      // WHY: the shell wallpaper URL is `/assets/wallpaper.jpg` (fest/image
+                      // default pointer) — without this copy the fetch 404s, the canvas
+                      // marks the source failed and no wallpaper is ever painted.
+                      // INVARIANT: dest is `dist/` — static-copy joins the source path
+                      // relative to the Vite root, so `dest=dist/assets` nested the file
+                      // as `dist/assets/assets/wallpaper.jpg` → /assets/wallpaper.jpg 404.
+                      { src: resolve(__dirname, "./assets/wallpaper.jpg"), dest: resolve(__dirname, "./dist/") },
+                      { src: resolve(__dirname, "./assets/stock.jpg"), dest: resolve(__dirname, "./dist/") },
                   ],
               })
             : []),

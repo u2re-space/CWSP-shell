@@ -163,8 +163,11 @@ const createHostSpaConfig = async ({ mode, outDir, platformRoot, cacheDir, enabl
                     { src: resolve(__dirname, "./src/pwa/icons/*"), dest: outDir },
                     { src: resolve(__dirname, "./src/pwa/screenshots/*"), dest: outDir },
                     // WHY: default wallpaper URL `/assets/wallpaper.jpg` (not under nested Vite root).
-                    { src: resolve(__dirname, "./assets/wallpaper.jpg"), dest: resolve(outDir, "assets") },
-                    { src: resolve(__dirname, "./assets/stock.jpg"), dest: resolve(outDir, "assets") },
+                    // INVARIANT: dest must be `outDir` — static-copy joins the stripped
+                    // relative path onto dest, so `dest=outDir/assets` nested the file
+                    // as `assets/assets/wallpaper.jpg` → /assets/wallpaper.jpg 404 → no wallpaper.
+                    { src: resolve(__dirname, "./assets/wallpaper.jpg"), dest: outDir },
+                    { src: resolve(__dirname, "./assets/stock.jpg"), dest: outDir },
                 ],
             }),
             VitePWA({
